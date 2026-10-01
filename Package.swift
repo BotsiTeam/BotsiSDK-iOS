@@ -12,21 +12,12 @@ let package = Package(
         .library(
             name: "Botsi",
             targets: ["Botsi"]
-        ),
-        .library(
-            name: "BotsiUI",
-            targets: ["BotsiUI"]
         )
     ],
     targets: [
         .target(
             name: "Botsi",
             path: "Sources"
-        ),
-        .target(
-            name: "BotsiUI",
-            dependencies: ["Botsi"],
-            path: "BotsiUI"
         ),
         .testTarget(
             name: "BotsiSDK-iOSTests",
