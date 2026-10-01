@@ -22,9 +22,9 @@ final class SystemLocaleProvider: LocaleProviding {
     func getUserLocale() -> BotsiUserLocale {
         let locale = Locale.current
         return BotsiUserLocale(
-            languageCode: locale.languageCode ?? "en",
-            regionCode: locale.regionCode ?? "US",
-            currencyCode: locale.currencyCode ?? "",
+            languageCode: locale.language.languageCode?.identifier ?? "en",
+            regionCode: locale.region?.identifier ?? "US",
+            currencyCode: locale.currency?.identifier ?? "",
             identifier: locale.identifier
         )
     }

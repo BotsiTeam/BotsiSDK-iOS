@@ -12,14 +12,10 @@ public final class Botsi: Sendable {
     let sdkApiKey: String
         
     let profileStorage: BotsiProfileStorage
-    fileprivate let cachedTransactionsStore: BotsiSyncedTransactionStore
     static let lifecycle = BotsiLifecycle()
-    
-    private let storeKit1Handler: StoreKit1Handler?
-    private let storeKit2Handler: StoreKit2Handler?
-    
-    private let enableStoreKit2: Bool = true
-    
+
+    private let storeKit2Handler: StoreKit2Handler
+
     private let configuration: BotsiConfiguration
     
     let botsiClient: BotsiHttpClient
@@ -30,28 +26,12 @@ public final class Botsi: Sendable {
         
         self.botsiClient = BotsiHttpClient(with: configuration)
         self.profileStorage = await BotsiProfileStorage()
-        
-        let cachedTransactionsStore = await BotsiSyncedTransactionStore()
-        self.cachedTransactionsStore = cachedTransactionsStore
-        
-        if #available(iOS 15.0, *), enableStoreKit2 {
-            self.storeKit2Handler = StoreKit2Handler(
-                client: botsiClient,
-                storage: profileStorage
-            )
-            self.storeKit1Handler = nil
-        } else {
-            let storeKit1Handler = StoreKit1Handler(
-                client: botsiClient,
-                storage: profileStorage,
-                configuration: configuration,
-                cachedTransactionsStore: self.cachedTransactionsStore
-            )
-            self.storeKit1Handler = storeKit1Handler
-            await self.storeKit1Handler?.startObservingTransactions()
-            self.storeKit2Handler = nil
-        }
-        
+
+        self.storeKit2Handler = StoreKit2Handler(
+            client: botsiClient,
+            storage: profileStorage
+        )
+
         await verifyUser()
         
         Task.detached {
@@ -361,25 +341,11 @@ public extension Botsi {
     
     func makePurchase(from product: BotsiProduct) async throws -> BotsiProfile {
         do {
-            if #available(iOS 15.0, *), enableStoreKit2 {
-                guard let handler = storeKit2Handler else {
-                    throw BotsiError.customError("SK2PurchaseError", "unable to unwrap Storekit 2 handler")
-                }
-                let profile = try await handler.purchaseSK2(product)
-                return profile
-            } else {
-                guard let handler = storeKit1Handler else {
-                    throw BotsiError.customError("SK1PurchaseError", "unable to unwrap Storekit 1 handler")
-                }
-                let profile = try await handler.purchaseSK1(product)
-                return profile
-            }
+            let profile = try await storeKit2Handler.purchaseSK2(product)
+            return profile
         } catch let error as BotsiError {
             BotsiLog.error("Failed to purchase: \(error.localizedDescription)")
             throw error
-        } catch let error as SK1Error {
-            BotsiLog.error("SKError failed to purchase: \(error.errorCode) \(error.errorUserInfo) \(error.localizedDescription)")
-            throw BotsiError.transactionFailed
         } catch {
             BotsiLog.error("Failed to purchase: \(error.localizedDescription)")
             throw BotsiError.transactionFailed
@@ -416,19 +382,8 @@ public extension Botsi {
     @discardableResult
     private func restorePurchases() async throws -> BotsiProfile {
         do {
-            if #available(iOS 15.0, *), enableStoreKit2 {
-                guard let handler = storeKit2Handler else {
-                    throw BotsiError.customError("restoreError", "unable to unwrap storekit 2 handler")
-                }
-                let userProfile = try await handler.restorePurchases()
-                return userProfile
-            } else {
-                guard let handler = storeKit1Handler else {
-                    throw BotsiError.customError("restoreError", "unable to unwrap storekit 1 handler")
-                }
-                let userProfile = try await handler.restorePurchases()
-                return userProfile
-            }
+            let userProfile = try await storeKit2Handler.restorePurchases()
+            return userProfile
         } catch {
             throw BotsiError.restoreFailed
         }
@@ -498,25 +453,8 @@ public extension Botsi {
     }
     
     private func retrieveProductDetails(from paywall: BotsiPaywall) async throws -> [BotsiProduct] {
-        if #available(iOS 15.0, *), enableStoreKit2 {
-            guard let handler = storeKit2Handler else {
-                throw BotsiError.customError("retrieveProductDetailsError", "unable to unwrap storekit 2 handler")
-            }
-            let products: [BotsiProduct] = try await getBotsiProducts(paywall: paywall, handler: handler)
-            return products
-        } else {
-            guard let handler = storeKit1Handler,
-                    let profile = await profileStorage.getProfile()
-            else {
-                throw BotsiError.customError("retrieveProductDetailsError", "unable to unwrap storekit 1 handler")
-            }
-            let products: [BotsiProduct] = try await getBotsiProductsForSK1(
-                profileId: profile.profileId,
-                paywall: paywall,
-                handler: handler
-            )
-            return products
-        }
+        let products: [BotsiProduct] = try await getBotsiProducts(paywall: paywall, handler: storeKit2Handler)
+        return products
     }
     
     // MARK: - Events

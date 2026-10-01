@@ -13,6 +13,8 @@ The Botsi SDK enables seamless in-app purchases and paywall management in iOS ap
 
 ## Installation
 
+**Requirements:** iOS 16.0 or later. The SDK uses StoreKit 2 only. Apps that still support iOS 13–15 should stay on SDK 1.x.
+
 To integrate the BotsiSDK into your project using Swift Package Manager (SPM), follow these steps:
 
 1. **Open Your Project in Xcode**  

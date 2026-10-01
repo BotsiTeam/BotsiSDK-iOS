@@ -8,41 +8,6 @@
 import Foundation
 
 extension Locale {
-    @inlinable
-    func localized(sk1Price price: NSDecimalNumber) -> String? {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.locale = self
-        return formatter.string(from: price)
-    }
-    
-    @inlinable
-    var unfCurrencyCode: String? {
-        if #available(macOS 13, iOS 16, tvOS 16, watchOS 9, visionOS 1.0, *) {
-            currency?.identifier
-        } else {
-            currencyCode
-        }
-    }
-    
-    @inlinable
-    var unfRegionCode: String? {
-        if #available(macOS 13, iOS 16, tvOS 16, watchOS 9, visionOS 1.0, *) {
-            region?.identifier
-        } else {
-            regionCode
-        }
-    }
-
-    @inlinable
-    var unfLanguageCode: String? {
-        if #available(macOS 13, iOS 16, tvOS 16, watchOS 9, visionOS 1.0, *) {
-            language.languageCode?.identifier
-        } else {
-            languageCode
-        }
-    }
-
     func localized(period: BotsiSubscriptionPeriod, numberOfPeriods: Int = 1) -> String? {
         let countUnits = period.numberOfUnits * numberOfPeriods
         switch period.unit {
