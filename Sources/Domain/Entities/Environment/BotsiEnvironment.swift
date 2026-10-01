@@ -50,7 +50,7 @@ final class StorefrontManager {
 
 
 extension Botsi {
-    public nonisolated static let sdkVersion = "1.0"
+    public nonisolated static let sdkVersion = "2.0.0"
 }
 
 extension BotsiEnvironment {
