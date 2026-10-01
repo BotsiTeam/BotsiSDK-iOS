@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
     s.license          = { :type => 'MIT', :file => 'LICENSE' }
     s.authors          = { "Botsi, Inc." => "support@botsi.com" }
     s.source           = { :git => "https://github.com/BotsiTeam/BotsiSDK-iOS.git", :tag => s.version.to_s }
-    s.documentation_url = "https://github.com/BotsiTeam/BotsiSDK-iOS/blob/development/botsi-documentation.md"
+    s.documentation_url = "https://github.com/BotsiTeam/BotsiSDK-iOS/blob/main/botsi-documentation.md"
 
     s.ios.deployment_target = '13.0'
     s.swift_version = '5.9'
