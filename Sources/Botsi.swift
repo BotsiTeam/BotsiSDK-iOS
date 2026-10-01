@@ -464,33 +464,6 @@ public extension Botsi {
         return try await repository.getPaywall(id: id)
     }
 
-    // MARK: - Paywall Builder
-    /// Retrieves the UI builder configuration for a paywall.
-    ///
-    /// This method fetches the JSON that defines the visual structure,
-    /// layout, and content of a paywall. The returned data contains all the UI elements,
-    /// styling, and component definitions needed to render the paywall interface.
-    ///
-    /// - Parameter paywall: A `BotsiPaywall` object obtained from `getPaywall(from:)`.
-    ///
-    /// - Returns: JSON data containing the paywall's UI builder object.
-    ///
-    /// - Throws: `BotsiError.networkError` if the request fails.
-    ///
-
-    typealias BotsiBuilder = Data
-
-    nonisolated static func getPaywallBuilder(from paywall: BotsiPaywall) async throws -> BotsiBuilder {
-        try await lifecycle.withInitializedSDK { botsi in
-            return try await botsi.getPaywallBuilder(from: paywall)
-        }
-    }
-
-    private func getPaywallBuilder(from paywall: BotsiPaywall) async throws -> Data {
-        let repository = GetPaywallBuilderRepository(httpClient: botsiClient, paywallId: paywall.id)
-        return try await repository.getPaywallBuilder(paywallId: paywall.id)
-    }
-    
     /// Retrieves detailed product information for all products in a paywall.
     ///
     /// This method takes a paywall configuration and fetches detailed information for all products
