@@ -11,9 +11,7 @@ extension BotsiPaymentTransaction {
     
     init(with product: Product,
          transaction: Transaction,
-         paywallId: Int? = nil,
-         abTestId: Int? = nil,
-         placementId: String? = nil
+         paywall: PaywallMeta? = nil
     ) {
         let offer = BotsiSubscriptionOffer(transaction: transaction, product: product)
         self.transactionId = String(transaction.id)
@@ -34,10 +32,8 @@ extension BotsiPaymentTransaction {
         self.promotionalOfferId = offer?.id ?? ""
         self.discountPrice = "\(offer?.price ?? 0)"
         self.productId = product.id
-        self.paywallId = paywallId
-        self.abTestId = abTestId
+        self.paywall = paywall
         self.isSubscription = offer != nil
-        self.placementId = placementId
     }
 }
 

@@ -13,11 +13,12 @@ extension Botsi {
         handler: StoreKit2Handler
     ) async throws -> [BotsiProduct] {
         
-        let identifiers = paywall.sourceProducts.compactMap { "\($0.sourceProductId)" }
+        let appStoreProducts = paywall.products.compactMap(\.appStore)
+        let identifiers = appStoreProducts.map(\.productId)
         
         let products: [ProductTupleSK2] = try await handler.retrieveProductAsync(with: identifiers)
             .compactMap { sk2Product in
-                let sourceProduct = paywall.sourceProducts.first(where: { $0.sourceProductId == sk2Product.id })!
+                let sourceProduct = appStoreProducts.first(where: { $0.productId == sk2Product.id })!
                 let (offer, subscriptionGroupId): (BotsiOffer?, String?) =
                     if let subscriptionGroupId = sk2Product.subscription?.subscriptionGroupID,
                        winBackOfferExist(with: sourceProduct.winBackOfferId, from: sk2Product) {
@@ -32,7 +33,7 @@ extension Botsi {
             BotsiLog.verbose("Eligible for winback offers.")
         }
 
-        var newProducts = [(product: Product, reference: BotsiSourceProduct, offer: BotsiOffer?)]()
+        var newProducts = [(product: Product, reference: BotsiAppStoreProduct, offer: BotsiOffer?)]()
         newProducts.reserveCapacity(products.count)
         for product in products {
             await newProducts.append(determineOfferFor(product, with: eligibleWinBackOfferIds))
@@ -41,9 +42,7 @@ extension Botsi {
         return newProducts.map {
             BotsiSK2PaywallProduct(
                 skProduct: $0.product,
-                paywallId: paywall.id,
-                placementId: paywall.placementId,
-                abTestId: paywall.abTestId,
+                paywall: PaywallMeta(paywall: paywall),
                 subscriptionOffer: $0.offer
             )
         }
@@ -51,13 +50,13 @@ extension Botsi {
 
     private typealias ProductTupleSK2 = (
         product: Product,
-        reference: BotsiSourceProduct,
+        reference: BotsiAppStoreProduct,
         offer: BotsiOffer?,
         subscriptionGroupId: String?
     )
 
     private func subscriptionOfferAvailable(
-        _ reference: BotsiSourceProduct,
+        _ reference: BotsiAppStoreProduct,
         _ sk2Product: Product
     ) -> BotsiOffer? {
         if let promotionalOffer = promotionalOffer(with: reference.promotionalOfferId, from: sk2Product) {
@@ -72,7 +71,7 @@ extension Botsi {
     private func determineOfferFor(
         _ tuple: ProductTupleSK2,
         with eligibleWinBackOfferIds: [String: [String]]
-    ) async -> (product: Product, reference: BotsiSourceProduct, offer: BotsiOffer?) {
+    ) async -> (product: Product, reference: BotsiAppStoreProduct, offer: BotsiOffer?) {
 
         if let subscriptionGroupId = tuple.subscriptionGroupId,
            let winBackOfferId = tuple.reference.winBackOfferId

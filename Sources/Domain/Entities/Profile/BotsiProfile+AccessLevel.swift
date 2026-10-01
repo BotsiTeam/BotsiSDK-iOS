@@ -17,10 +17,10 @@ extension BotsiProfile {
         public let isActive: Bool
         
         /// `An identifier for a product in the store that grants access to this level.`
-        public let sourceProductId: String
+        public let sourceProductId: String?
         public let sourceBasePlanId: String?
         
-        public let store: String
+        public let store: String?
         
         /// `The timestamp indicating when this access level was activated.`
         public let activatedAt: String?
@@ -72,23 +72,21 @@ extension BotsiProfile {
             createdDate = try container.decode(String.self, forKey: .createdDate)
             id = try container.decode(Int.self, forKey: .id)
             isActive = try container.decode(Bool.self, forKey: .isActive)
-            sourceProductId = try container.decode(String.self, forKey: .sourceProductId)
+            // These columns are nullable, for example on access granted from the dashboard.
+            sourceProductId = try container.decodeIfPresent(String.self, forKey: .sourceProductId)
             sourceBasePlanId = try container.decodeIfPresent(String.self, forKey: .sourceBasePlanId)
-            store = try container.decode(String.self, forKey: .store)
-            activatedAt = try container.decode(String.self, forKey: .activatedAt)
-            isLifetime = try container.decode(Bool.self, forKey: .isLifetime)
+            store = try container.decodeIfPresent(String.self, forKey: .store)
+            activatedAt = try container.decodeIfPresent(String.self, forKey: .activatedAt)
+            isLifetime = try container.decodeIfPresent(Bool.self, forKey: .isLifetime) ?? false
             isRefund = try container.decodeIfPresent(Bool.self, forKey: .isRefund)
-            willRenew = try container.decode(Bool.self, forKey: .willRenew)
-            isInGracePeriod = try container.decode(Bool.self, forKey: .isInGracePeriod)
+            willRenew = try container.decodeIfPresent(Bool.self, forKey: .willRenew) ?? false
+            isInGracePeriod = try container.decodeIfPresent(Bool.self, forKey: .isInGracePeriod) ?? false
             cancellationReason = try container.decodeIfPresent(String.self, forKey: .cancellationReason)
             offerId = try container.decodeIfPresent(String.self, forKey: .offerId)
             
-            let startsAtString = try container.decode(String.self, forKey: .startsAt)
-            startsAt = try Date.parseISO8601(from: startsAtString)
-            let renewedAtString = try container.decode(String.self, forKey: .renewedAt)
-            renewedAt = try Date.parseISO8601(from: renewedAtString)
-            let expiresAtString = try container.decode(String.self, forKey: .expiresAt)
-            expiresAt = try Date.parseISO8601(from: expiresAtString)
+            startsAt = try container.decodeIfPresent(String.self, forKey: .startsAt).flatMap { try? Date.parseISO8601(from: $0) }
+            renewedAt = try container.decodeIfPresent(String.self, forKey: .renewedAt).flatMap { try? Date.parseISO8601(from: $0) }
+            expiresAt = try container.decodeIfPresent(String.self, forKey: .expiresAt).flatMap { try? Date.parseISO8601(from: $0) }
             
             activeIntroductoryOfferType = try container.decodeIfPresent(String.self, forKey: .activeIntroductoryOfferType)
             activePromotionalOfferType = try container.decodeIfPresent(String.self, forKey: .activePromotionalOfferType)
@@ -103,10 +101,10 @@ extension BotsiProfile {
             try container.encode(createdDate, forKey: .createdDate)
             try container.encode(id, forKey: .id)
             try container.encode(isActive, forKey: .isActive)
-            try container.encode(sourceProductId, forKey: .sourceProductId)
+            try container.encodeIfPresent(sourceProductId, forKey: .sourceProductId)
             try container.encodeIfPresent(sourceBasePlanId, forKey: .sourceBasePlanId)
-            try container.encode(store, forKey: .store)
-            try container.encode(activatedAt, forKey: .activatedAt)
+            try container.encodeIfPresent(store, forKey: .store)
+            try container.encodeIfPresent(activatedAt, forKey: .activatedAt)
             try container.encode(isLifetime, forKey: .isLifetime)
             try container.encodeIfPresent(isRefund, forKey: .isRefund)
             try container.encode(willRenew, forKey: .willRenew)

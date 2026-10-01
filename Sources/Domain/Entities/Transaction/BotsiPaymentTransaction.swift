@@ -22,9 +22,8 @@ public struct BotsiPaymentTransaction: Sendable, CustomStringConvertible {
     let productId: String
     let environment: String
     
-    let paywallId: Int?
-    let abTestId: Int?
-    let placementId: String?
+    /// The paywall the purchase came from, when the SDK knows it.
+    let paywall: PaywallMeta?
     let isSubscription: Bool
     
     public var description: String {

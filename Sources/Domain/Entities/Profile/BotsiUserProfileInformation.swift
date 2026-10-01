@@ -16,7 +16,7 @@ public struct BotsiUserProfileInformation: Sendable {
     public let custom: [BotsiProfile.BotsiCustomEntry]?
     public let idfa: String?
     public let advertisingId: String?
-    internal let ip: String?
+    internal let ipAddress: String?
     
     public init(
         birthday: Date? = nil,
@@ -27,7 +27,7 @@ public struct BotsiUserProfileInformation: Sendable {
         custom: [BotsiProfile.BotsiCustomEntry]? = nil,
         idfa: String? = nil,
         advertisingId: String? = nil,
-        ip: String? = nil
+        ipAddress: String? = nil
     ) {
         self.birthday = birthday
         self.email = email
@@ -37,6 +37,6 @@ public struct BotsiUserProfileInformation: Sendable {
         self.custom = custom
         self.idfa = idfa
         self.advertisingId = advertisingId
-        self.ip = ip
+        self.ipAddress = ipAddress
     }
 } 

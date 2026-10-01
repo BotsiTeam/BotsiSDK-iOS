@@ -38,18 +38,19 @@ import Foundation
     
     let accessLevel = try decoder.decode(BotsiProfile.BotsiAccessLevel.self, from: jsonData)
     
-    #expect(accessLevel.startsAt.timeIntervalSince1970 > 0)
-    #expect(accessLevel.renewedAt.timeIntervalSince1970 > 0)
-    #expect(accessLevel.expiresAt.timeIntervalSince1970 > 0)
+    #expect((accessLevel.startsAt?.timeIntervalSince1970 ?? 0) > 0)
+    #expect((accessLevel.renewedAt?.timeIntervalSince1970 ?? 0) > 0)
+    #expect((accessLevel.expiresAt?.timeIntervalSince1970 ?? 0) > 0)
     
     let subscription = try decoder.decode(BotsiProfile.BotsiSubscription.self, from: jsonData)
     
-    #expect(subscription.startsAt.timeIntervalSince1970 > 0)
-    #expect(subscription.renewedAt.timeIntervalSince1970 > 0)
-    #expect(subscription.expiresAt.timeIntervalSince1970 > 0)
+    #expect((subscription.startsAt?.timeIntervalSince1970 ?? 0) > 0)
+    #expect((subscription.renewedAt?.timeIntervalSince1970 ?? 0) > 0)
+    #expect((subscription.expiresAt?.timeIntervalSince1970 ?? 0) > 0)
 }
 
-@Test func testBirthdayParsing() async throws {
+@Test func testProfileSavedBySDK1Decodes() async throws {
+    // SDK 1.x saved profiles with `customerUserId` and `birthday`; 2.0 must still read them.
     let jsonString = """
     {
         "profileId": "test_profile_123",
@@ -62,32 +63,14 @@ import Foundation
     }
     """
     
-    let jsonData = jsonString.data(using: .utf8)!
-    let decoder = JSONDecoder()
+    let profile = try JSONDecoder().decode(BotsiProfile.self, from: Data(jsonString.utf8))
     
-    let profile = try decoder.decode(BotsiProfile.self, from: jsonData)
-    
-    #expect(profile.birthday != nil)
-    #expect(profile.birthday!.timeIntervalSince1970 > 0)
     #expect(profile.profileId == "test_profile_123")
-    #expect(profile.customerUserId == "customer_456")
+    #expect(profile.appUserId == "customer_456")
+    #expect(profile.includesCustom)
     
-    let jsonStringNullBirthday = """
-    {
-        "profileId": "test_profile_123",
-        "customerUserId": "customer_456",
-        "accessLevels": {},
-        "subscriptions": {},
-        "nonSubscriptions": {},
-        "custom": [],
-        "birthday": null
-    }
-    """
-    
-    let jsonDataNull = jsonStringNullBirthday.data(using: .utf8)!
-    let profileNullBirthday = try decoder.decode(BotsiProfile.self, from: jsonDataNull)
-    
-    #expect(profileNullBirthday.birthday == nil)
+    let saved = try JSONDecoder().decode(BotsiProfile.self, from: JSONEncoder().encode(profile))
+    #expect(saved.appUserId == "customer_456")
 }
 
 @Test func testUnifiedDateUtils() async throws {

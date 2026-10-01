@@ -19,12 +19,16 @@ public final class Botsi: Sendable {
     private let configuration: BotsiConfiguration
     
     let botsiClient: BotsiHttpClient
+    let profilesRepository: BotsiProfilesRepository
+    private let paywallsRepository: BotsiPaywallsRepository
     
     init(from configuration: BotsiConfiguration) async {
         self.sdkApiKey = configuration.sdkApiKey
         self.configuration = configuration
         
         self.botsiClient = BotsiHttpClient(with: configuration)
+        self.profilesRepository = BotsiProfilesRepository(httpClient: botsiClient)
+        self.paywallsRepository = BotsiPaywallsRepository(httpClient: botsiClient)
         self.profileStorage = await BotsiProfileStorage()
 
         self.storeKit2Handler = StoreKit2Handler(
@@ -33,55 +37,82 @@ public final class Botsi: Sendable {
         )
 
         await verifyUser()
+        await storeKit2Handler.startObservingTransactions()
         
         Task.detached {
             let ip = try await IPAddressManager.getIPAddress()
-            let profileInfo = BotsiUserProfileInformation(ip: ip)
+            let profileInfo = BotsiUserProfileInformation(ipAddress: ip)
             try await self.updateUserProfile(profileUpdate: profileInfo)
         }
     }
     
     private func verifyUser() async {
         guard let profile = await profileStorage.getProfile() else {
-            await createAndSetupNewProfile()
+            await createProfileSafely(appUserId: configuration.appUserId)
             return
         }
         
-        if profile.customerUserId != configuration.customerUserId {
-            await switchToNewUserProfile()
+        // Without an appUserId, keep whoever is signed in; `logout()` is how a user leaves.
+        if let appUserId = configuration.appUserId, appUserId != profile.appUserId {
+            BotsiLog.info("appUserId changed from '\(profile.appUserId ?? "nil")' to '\(appUserId)'. Switching to new user profile.")
+            await clearIfAnotherUser(profile)
+            await createProfileSafely(appUserId: appUserId)
             return
         }
         
         await updateExistingProfile(profile)
     }
     
-    private func createAndSetupNewProfile() async {
-        let uuid = await profileStorage.getNewProfileUUID()
-        if let profile = try? await createUserProfile(with: uuid, userCustomerId: configuration.customerUserId) {
-            await profileStorage.setProfile(profile)
-            await updateASAToken(profile.profileId)
-            await restorePurchasesSafely()
+    /// An anonymous profile stays current if switching to a signed-in user fails, since it's the same
+    /// person. Another user's profile doesn't, so their purchases can't be credited to the wrong user.
+    private func clearIfAnotherUser(_ profile: BotsiProfile) async {
+        if profile.appUserId != nil {
+            await profileStorage.clearProfile()
         }
     }
     
-    private func switchToNewUserProfile() async {
-        guard let currentProfile = await profileStorage.getProfile() else { return }
-        
-        BotsiLog.info("CustomerUserId changed from '\(currentProfile.customerUserId ?? "nil")' to '\(configuration.customerUserId ?? "nil")'. Switching to new user profile.")
-        
-        let newUuid = await profileStorage.getNewProfileUUID()
+    private func createProfileSafely(appUserId: String?) async {
+        do {
+            try await createAndSetupNewProfile(appUserId: appUserId)
+        } catch {
+            BotsiLog.error("Unable to create profile: \(error.localizedDescription)")
+        }
+    }
+    
+    /// Creates a profile, or finds the existing one when Botsi already knows `appUserId`, and makes it the
+    /// current profile. Then sends the Apple Search Ads token and restores any App Store subscription onto it.
+    ///
+    /// If Botsi can't be reached, the previous profile stays current; callers clear it first when it must not.
+    @discardableResult
+    private func createAndSetupNewProfile(appUserId: String?) async throws -> BotsiProfile {
+        let environment = await BotsiEnvironment.current()
+        let profileId = try await profilesRepository.createProfile(appUserId: appUserId, environment: environment)
+        // Creation leaves an existing profile's details unchanged, so they're sent separately.
+        let profile = appUserId == nil
+            ? try await profilesRepository.getProfile(profileId: profileId)
+            : try await profilesRepository.updateProfile(profileId: profileId, update: BotsiUpdateProfileRequestDto(environment))
         await profileStorage.clearProfile()
-        
-        if let newProfile = try? await createUserProfile(with: newUuid, userCustomerId: configuration.customerUserId) {
-            await profileStorage.setProfile(newProfile)
-            await updateASAToken(newProfile.profileId)
-            await restorePurchasesSafely()
-        }
+        await profileStorage.setProfile(profile)
+        await profileStorage.setSavedEnvironment(environment)
+        await updateASAToken(profile.profileId)
+        await restorePurchasesSafely()
+        return await profileStorage.getProfile() ?? profile
     }
     
+    /// Refreshes the saved profile, and sends the device and app details again if they changed since last time.
     private func updateExistingProfile(_ profile: BotsiProfile) async {
         do {
-            let updatedProfile = try await getUserProfile()
+            let environment = await BotsiEnvironment.current()
+            let updatedProfile: BotsiProfile
+            if await profileStorage.savedEnvironment() != environment {
+                updatedProfile = try await profilesRepository.updateProfile(
+                    profileId: profile.profileId,
+                    update: BotsiUpdateProfileRequestDto(environment)
+                )
+                await profileStorage.setSavedEnvironment(environment)
+            } else {
+                updatedProfile = try await profilesRepository.getProfile(profileId: profile.profileId)
+            }
             BotsiLog.info("Fetched updated user profile with id: \(updatedProfile.profileId)")
             await profileStorage.setProfile(updatedProfile)
         } catch {
@@ -91,10 +122,17 @@ public final class Botsi: Sendable {
     
     private func restorePurchasesSafely() async {
         do {
-            try await restorePurchases()
+            try await restorePurchases(syncWithAppStore: false)
         } catch {
             BotsiLog.error("Unable to restore purchases: \(error.localizedDescription)")
         }
+    }
+    
+    func requireProfileId() async throws -> String {
+        guard let profileId = await profileStorage.currentProfileId() else {
+            throw BotsiError.userProfileNotFound
+        }
+        return profileId
     }
 }
 
@@ -104,24 +142,24 @@ public extension Botsi {
     /// This is the entry point for using the Botsi SDK. Call this method before using any other
     /// SDK functionality. The SDK will create and manage user profiles automatically.
     ///
-    /// - Parameter key: A string object containing your SDK API key.
-    /// - Parameter customerUserId: A string object containing an internal user identifier, e.g. `john@doe.com` or `user_1234`.
+    /// - Parameter key: Your app's public SDK key from the Botsi dashboard.
+    /// - Parameter appUserId: Your own ID for the user, such as `user_1234`. Leave it out for an anonymous user.
     ///
     /// - Throws: An error if the SDK fails to initialize properly.
     ///
     /// - Example:
     ///   ```swift
     ///   do {
-    ///       try await Botsi.activate("your_api_key", customerUserId: "user_12345")
+    ///       try await Botsi.activate("your_public_sdk_key", appUserId: "user_12345")
     ///       // SDK is now initialized and ready for use
     ///   } catch {
     ///       print("Failed to initialize Botsi SDK: \(error)")
     ///   }
     ///   ```
     
-    nonisolated static func activate(_ key: String, customerUserId: String? = nil) async throws {
+    nonisolated static func activate(_ key: String, appUserId: String? = nil) async throws {
         let configuration = BotsiConfiguration.build(sdkApiKey: key)
-            .set(customerUserIdentifier: customerUserId)
+            .set(appUserId: appUserId)
         try await proceedWithActivation(with: configuration)
     }
     
@@ -136,17 +174,11 @@ public extension Botsi {
         }
     }
     
-    static func withInitializedSDK<T: Sendable>(
-        identifier: BotsiRequestIdentifier,
-        caller: StaticString = #function,
-        operation: @BotsiActor @Sendable @escaping (Botsi) async throws -> T
-    ) async throws -> T {
-        try await lifecycle.withInitializedSDK(operation: operation)
-    }
-    
-    /// /// Links the SDK session to a specific user in your own system.
+    /// Links the SDK session to a specific user in your own system.
     ///
     /// If you didn’t provide a user ID when initializing the SDK, you can call `.identify()` at any point—most often right after the user signs up or logs in, moving from an anonymous session to an authenticated one.
+    ///
+    /// Botsi finds the user's existing profile when it already knows `userId`, and then restores the user's App Store subscription onto it.
     ///
     /// - Parameter userId: The unique identifier for the user in your system.
     
@@ -156,27 +188,13 @@ public extension Botsi {
         }
     }
     
-    private func identifyUser(with customerUserId: String) async throws {
-        guard let profile = await profileStorage.getProfile() else {
-            let uuid = await profileStorage.getNewProfileUUID()
-            if let profile = try? await createUserProfile(with: uuid, userCustomerId: customerUserId) {
-                await profileStorage.setProfile(profile)
-                await restorePurchasesSafely()
-            }
-            return
+    private func identifyUser(with appUserId: String) async throws {
+        if let profile = await profileStorage.getProfile() {
+            guard profile.appUserId != appUserId else { return }
+            BotsiLog.info("appUserId changed from '\(profile.appUserId ?? "nil")' to '\(appUserId)'. Switching to new user profile.")
+            await clearIfAnotherUser(profile)
         }
-        
-        guard profile.customerUserId != customerUserId else { return }
-        
-        BotsiLog.info("CustomerUserId changed from '\(profile.customerUserId ?? "nil")' to '\(customerUserId)'. Switching to new user profile.")
-        
-        let newUuid = await profileStorage.getNewProfileUUID()
-        await profileStorage.clearProfile()
-        
-        if let newProfile = try? await createUserProfile(with: newUuid, userCustomerId: customerUserId) {
-            await profileStorage.setProfile(newProfile)
-            await restorePurchasesSafely()
-        }
+        try await createAndSetupNewProfile(appUserId: appUserId)
     }
     
     /// Ends the current user session and reverts the SDK to an anonymous state.
@@ -192,8 +210,9 @@ public extension Botsi {
     }
     
     private func clearProfile() async throws {
+        // Signed-out data goes even if Botsi can't be reached to create the anonymous profile.
         await profileStorage.clearProfile()
-        await createAndSetupNewProfile()
+        try await createAndSetupNewProfile(appUserId: nil)
     }
     
     /// Checks if the Botsi SDK has been properly initialized.
@@ -229,9 +248,6 @@ public extension Botsi {
     ///       print("Failed to get user profile: \(error)")
     ///   }
     ///   ```
-    typealias ProfileIdentifier = String
-    typealias UserCustomerIdentifier = String
-    
     nonisolated static func getProfile() async throws -> BotsiProfile {
         return try await lifecycle.withInitializedSDK { botsi in
             try await botsi.getUserProfile()
@@ -278,36 +294,26 @@ public extension Botsi {
         }
     }
     
-    @discardableResult
-    private func createUserProfile(
-        with id: ProfileIdentifier,
-        userCustomerId: UserCustomerIdentifier? = nil
-    ) async throws -> BotsiProfile {
-        let createProfile = UserProfileRepository(httpClient: botsiClient)
-        return try await createProfile.createUserProfile(
-            identifier: id,
-            customerId: userCustomerId
-        )
-    }
-    
+    /// Saves custom attributes first, then the other fields, and returns the profile with both.
     @discardableResult
     private func updateUserProfile(profileUpdate: BotsiUserProfileInformation) async throws -> BotsiProfile {
-        let userId = await profileStorage.currentProfileId()
-        let updateUserRepository = UpdateUserProfileRepository(httpClient: botsiClient)
-        let useCase = BotsiUpdateProfileUseCase(repository: updateUserRepository)
-        let profile = try await useCase.execute(identifier: userId, profileUpdate: profileUpdate)
+        let profileId = try await requireProfileId()
+        if let custom = profileUpdate.custom, !custom.isEmpty {
+            try await profilesRepository.setCustomAttributes(profileId: profileId, entries: custom)
+        }
+        let profile = try await profilesRepository.updateProfile(
+            profileId: profileId,
+            update: BotsiUpdateProfileRequestDto(profileUpdate)
+        )
         await profileStorage.setProfile(profile)
         return profile
     }
     
     @discardableResult
     private func getUserProfile() async throws -> BotsiProfile {
-        if let storedProfile = await profileStorage.getProfile() {
-            let repository = GetUserProfileRepository(httpClient: botsiClient)
-            return try await repository.getUserProfile(identifier: storedProfile.profileId)
-        } else {
-            throw BotsiError.userProfileNotFound
-        }
+        let profile = try await profilesRepository.getProfile(profileId: try await requireProfileId())
+        await profileStorage.setProfile(profile)
+        return profile
     }
 
     /// Initiates a purchase for the specified product ID.
@@ -354,13 +360,16 @@ public extension Botsi {
     
     /// Restores previously purchased products for the current user.
     ///
-    /// Use this method to allow users to restore their previous purchases, typically when they
-    /// install your app on a new device or after reinstalling the app. This method will update
-    /// the user's profile with all previously purchased entitlements.
+    /// Call this from a Restore Purchases button. StoreKit syncs the user's transactions first and may
+    /// ask them to sign in to the App Store. Botsi then restores the newest App Store subscription the
+    /// user is entitled to onto the current profile.
     ///
-    /// - Returns: Updated user profile with restored purchases.
+    /// The SDK already restores automatically, without any prompt, whenever it creates a profile.
     ///
-    /// - Throws: `BotsiError.restoreFailed` if the restore operation fails,
+    /// - Returns: The updated profile. Check its `accessLevels`: when there was nothing to restore,
+    ///   the profile comes back unchanged rather than as an error.
+    ///
+    /// - Throws: `BotsiError.apiError` if Botsi rejects the request,
     ///           or other errors if the network request fails.
     ///
     /// - Example:
@@ -375,16 +384,20 @@ public extension Botsi {
     ///   ```
     nonisolated static func restorePurchases() async throws -> BotsiProfile {
         try await lifecycle.withInitializedSDK { botsi in
-            return try await botsi.restorePurchases()
+            return try await botsi.restorePurchases(syncWithAppStore: true)
         }
     }
     
+    /// - Parameter syncWithAppStore: `true` only when the user asked to restore; StoreKit may ask them to sign in.
     @discardableResult
-    private func restorePurchases() async throws -> BotsiProfile {
+    private func restorePurchases(syncWithAppStore: Bool) async throws -> BotsiProfile {
         do {
-            let userProfile = try await storeKit2Handler.restorePurchases()
+            let userProfile = try await storeKit2Handler.restorePurchases(syncWithAppStore: syncWithAppStore)
             return userProfile
+        } catch let error as BotsiError {
+            throw error
         } catch {
+            BotsiLog.error("Failed to restore: \(error.localizedDescription)")
             throw BotsiError.restoreFailed
         }
     }
@@ -395,15 +408,16 @@ public extension Botsi {
 
     /// Retrieves a paywall configuration for the specified placement ID.
     ///
-    /// Paywalls contain UI elements and product references for displaying purchase options to users.
-    /// Each paywall is configured in the Botsi dashboard and can be retrieved by its placement ID.
+    /// Botsi chooses the paywall for the placement, including through AI pricing, and returns it with
+    /// its products. Pass it to `getPaywallProducts(from:)` for StoreKit prices, and to
+    /// `logPaywallShown(for:)` once the user sees it.
     ///
     /// - Parameter placementId: The identifier of the paywall placement.
     ///
-    /// - Returns: The paywall configuration with UI elements and product references.
+    /// - Returns: The paywall, its products and the `paywallSessionId` that links views and purchases to it.
     ///
-    /// - Throws: `BotsiError.userProfileNotFound` if no user profile exists,
-    ///           or other errors if the network request fails.
+    /// - Throws: `BotsiError.paywallFetchingFailed` if no user profile exists,
+    ///           `BotsiError.apiError` if Botsi rejects the request, or other errors if the network request fails.
     ///
     nonisolated static func getPaywall(from placementId: String) async throws -> BotsiPaywall {
         try await lifecycle.withInitializedSDK { botsi in
@@ -411,12 +425,11 @@ public extension Botsi {
         }
     }
     
-    private func getPaywall(from id: String) async throws -> BotsiPaywall {
-        guard let profile = await profileStorage.getProfile() else {
+    private func getPaywall(from placementId: String) async throws -> BotsiPaywall {
+        guard let profileId = await profileStorage.currentProfileId() else {
             throw BotsiError.paywallFetchingFailed
         }
-        let repository = GetPaywallRepository(httpClient: botsiClient, profileId: profile.profileId)
-        return try await repository.getPaywall(id: id)
+        return try await paywallsRepository.getPaywall(profileId: profileId, placementId: placementId)
     }
 
     /// Retrieves detailed product information for all products in a paywall.
@@ -458,49 +471,12 @@ public extension Botsi {
     }
     
     // MARK: - Events
-    /// `Analytics`
-    nonisolated private func sendPaywallTrackEvent(event: BotsiLogEvent) async throws {
-        let eventsRepository = EventsRepository(httpClient: botsiClient)
-        let useCase = BotsiSendEventUseCase(repository: eventsRepository)
-        try await useCase.execute(
-            profileId: event.profileId,
-            paywallId: event.paywallId,
-            abTestId: event.abTestId,
-            eventType: event.type.rawValue,
-            placementId: event.placementId,
-            aiPricingModelId: event.aiPricingModelId,
-            isExperiment: event.isExperiment
-        )
-    }
-    
     private func logPaywallShown(_ paywall: BotsiPaywall) async throws {
-        let profileId = await profileStorage.currentProfileId()
-        let environment = try await BotsiEnvironment()
-        let customContext = BotsiLogEventContext(
-            userId: profileId,
-            environment: environment
-        )
-        let loggerWithContext = BotsiEventLoggerFactory.createLoggerWithContext(
-            initialContext: customContext,
-            sendEventFunction: { @Sendable [unowned self] event in
-                try await self.sendPaywallTrackEvent(event: event)
-            }
-        )
-
-        let userActionEvent = BotsiLogEvent(
-            profileId: profileId,
-            paywallId: paywall.id,
-            abTestId: paywall.abTestId,
-            type: .userPaywallShown,
-            name: "userPaywallPresentedLog",
-            message: "Paywall presented.",
-            placementId: paywall.placementId,
-            aiPricingModelId: paywall.aiPricingModelId,
-            isExperiment: paywall.isExperiment,
-        )
-        try await loggerWithContext.logEvent(userActionEvent)
+        try await paywallsRepository.logPaywallShown(paywallSessionId: paywall.paywallSessionId)
     }
     
+    /// Reports that the user saw the paywall. Call it once per display, within about 24 hours of
+    /// fetching the paywall; after that, fetch it again.
     nonisolated static func logPaywallShown(for paywall: BotsiPaywall) async throws {
         try await lifecycle.withInitializedSDK { botsi in
             try await botsi.logPaywallShown(paywall)
@@ -514,11 +490,6 @@ public extension Botsi {
     }
     
     private func sendRefundDataConsent(_ consent: Bool) async throws {
-        guard let profile = await profileStorage.getProfile() else {
-            throw BotsiError.userProfileNotFound
-        }
-        let repository = UpdateRefundConsentRepository(httpClient: botsiClient)
-        let useCase = BotsiUpdateRefundConsentUseCase(repository: repository)
-        return try await useCase.execute(profileId: profile.profileId, consent: consent)
+        try await profilesRepository.setAppleConsumptionConsent(profileId: try await requireProfileId(), consent: consent)
     }
 }

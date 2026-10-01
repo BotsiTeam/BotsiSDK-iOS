@@ -12,7 +12,6 @@ public protocol BotsiProduct: Sendable, CustomStringConvertible {
     var sk2Product: Product? { get }
     
     var paywallId: Int { get }
-    var abTestId: Int? { get }
     var productId: String { get }
     var placementId: String? { get }
     
@@ -107,9 +106,11 @@ extension BotsiSK2Product {
 // MARK: - SK Products
 struct BotsiSK2PaywallProduct: BotsiSK2Product {
     var skProduct: Product
-    var paywallId: Int
-    var placementId: String?
-    var abTestId: Int?
+    /// The paywall the product was loaded for, sent with the purchase.
+    var paywall: PaywallMeta
+    
+    var paywallId: Int { paywall.paywallId }
+    var placementId: String? { paywall.placementId }
     
     var subscriptionOffer: BotsiOffer?
 }
