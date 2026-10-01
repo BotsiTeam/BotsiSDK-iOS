@@ -116,7 +116,7 @@ public class BotsiObjCUserProfileInformation: NSObject {
 @objc(BotsiObjCProfile)
 public class BotsiObjCProfile: NSObject {
     @objc public let profileId: String
-    @objc public let customerUserId: String?
+    @objc public let appUserId: String?
     @objc public let accessLevels: [String: Any]
     @objc public let subscriptions: [String: Any]
     @objc public let nonSubscriptions: [String: Any]
@@ -125,9 +125,9 @@ public class BotsiObjCProfile: NSObject {
     // Store the original Swift profile for conversion back
     let swiftProfile: BotsiProfile
     
-    public init(profileId: String, customerUserId: String?, accessLevels: [String: Any], subscriptions: [String: Any], nonSubscriptions: [String: Any], custom: [Any], swiftProfile: BotsiProfile) {
+    public init(profileId: String, appUserId: String?, accessLevels: [String: Any], subscriptions: [String: Any], nonSubscriptions: [String: Any], custom: [Any], swiftProfile: BotsiProfile) {
         self.profileId = profileId
-        self.customerUserId = customerUserId
+        self.appUserId = appUserId
         self.accessLevels = accessLevels
         self.subscriptions = subscriptions
         self.nonSubscriptions = nonSubscriptions
@@ -144,7 +144,7 @@ public class BotsiObjCProfile: NSObject {
         let customArray = swift.custom.map { $0 as Any }
         
         self.init(profileId: swift.profileId,
-                  customerUserId: swift.customerUserId,
+                  appUserId: swift.appUserId,
                   accessLevels: accessLevelsDict,
                   subscriptions: subscriptionsDict,
                   nonSubscriptions: nonSubscriptionsDict,
@@ -160,7 +160,7 @@ public class BotsiObjCProfile: NSObject {
         let customArray = swift.custom.map { $0 as Any }
         
         return BotsiObjCProfile(profileId: swift.profileId,
-                  customerUserId: swift.customerUserId,
+                  appUserId: swift.appUserId,
                   accessLevels: accessLevelsDict,
                   subscriptions: subscriptionsDict,
                   nonSubscriptions: nonSubscriptionsDict,
@@ -242,31 +242,29 @@ public class BotsiObjCProduct: NSObject {
 public class BotsiObjCPaywall: NSObject {
     @objc public let placementId: String
     @objc public let paywallId: Int
+    @objc public let externalId: String?
     @objc public let name: String
-    @objc public let remoteConfigs: String?
-    @objc public let revision: Int
-    @objc public let abTestId: Int
+    @objc public let isExperiment: Bool
+    /// The AI pricing model that chose the paywall, or `nil`.
+    @objc public let aiPricingModelId: NSNumber?
+    @objc public let paywallSessionId: String
+    
     public let swiftPaywall: BotsiPaywall
     
-    public init(placementId: String, paywallId: Int, name: String, remoteConfigs: String?, revision: Int, abTestId: Int, swiftPaywall: BotsiPaywall) {
-        self.placementId = placementId
-        self.paywallId = paywallId
-        self.name = name
-        self.remoteConfigs = remoteConfigs
-        self.revision = revision
-        self.abTestId = abTestId
+    public init(swiftPaywall: BotsiPaywall) {
+        self.placementId = swiftPaywall.placementId
+        self.paywallId = swiftPaywall.id
+        self.externalId = swiftPaywall.externalId
+        self.name = swiftPaywall.name
+        self.isExperiment = swiftPaywall.isExperiment
+        self.aiPricingModelId = swiftPaywall.aiPricingModelId.map { NSNumber(value: $0) }
+        self.paywallSessionId = swiftPaywall.paywallSessionId
         self.swiftPaywall = swiftPaywall
         super.init()
     }
     
     convenience init(swift: BotsiPaywall) {
-        self.init(placementId: swift.placementId,
-                  paywallId: swift.id,
-                  name: swift.name,
-                  remoteConfigs: swift.remoteConfigs,
-                  revision: swift.revision,
-                  abTestId: swift.abTestId ?? 0,
-                  swiftPaywall: swift)
+        self.init(swiftPaywall: swift)
     }
 }
 
@@ -319,10 +317,10 @@ public class BotsiObjCSDK: NSObject {
         }
     }
     
-    @objc public static func activate(_ key: String, customerUserId: String?, completion: @escaping @Sendable (BotsiObjCError?) -> Void) {
+    @objc public static func activate(_ key: String, appUserId: String?, completion: @escaping @Sendable (BotsiObjCError?) -> Void) {
         Task {
             do {
-                try await Botsi.activate(key, customerUserId: customerUserId)
+                try await Botsi.activate(key, appUserId: appUserId)
                 completion(nil)
             } catch {
                 completion(BotsiObjCError(swift: error))

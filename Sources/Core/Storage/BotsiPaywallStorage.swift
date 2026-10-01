@@ -7,13 +7,20 @@
 
 import Foundation
 
+/// The paywall a purchase came from, sent with its validation so Botsi can attribute it.
 struct PaywallMeta: Codable, Equatable {
     let paywallId: Int
     let placementId: String?
-    let abTestId: Int?
+    let isExperiment: Bool?
+    let aiPricingModelId: Int?
+    let paywallSessionId: String?
     
-    static func ==(lhs: PaywallMeta, rhs: PaywallMeta) -> Bool {
-        return lhs.paywallId == rhs.paywallId && lhs.placementId == rhs.placementId
+    init(paywall: BotsiPaywall) {
+        self.paywallId = paywall.id
+        self.placementId = paywall.placementId
+        self.isExperiment = paywall.isExperiment
+        self.aiPricingModelId = paywall.aiPricingModelId
+        self.paywallSessionId = paywall.paywallSessionId
     }
 }
 

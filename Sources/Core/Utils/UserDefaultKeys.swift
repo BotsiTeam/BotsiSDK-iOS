@@ -11,5 +11,6 @@ struct UserDefaultKeys {
         static let syncedTransactions: String = "synced_transactions"
         static let lastSyncedTransactionId: String = "last_synced_transaction_id"
         static let asaToken: String = "asa_token"
+        static let environment: String = "profile_environment"
     }
 }

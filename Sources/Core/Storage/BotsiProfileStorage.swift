@@ -10,7 +10,6 @@ import Foundation
 public actor BotsiProfileStorage: Sendable {
     private let storageManager: BotsiStorageManager = BotsiStorageManager()
     
-    private var profileId: String
     private var profile: BotsiProfile?
     private var asaTokenUpdated: Bool = false
     
@@ -23,17 +22,14 @@ public actor BotsiProfileStorage: Sendable {
                 throw BotsiError.customError("Profile Storage Error.", "Unable to retrieve user profile")
             }
             self.profile = storedProfile
-            self.profileId = storedProfile.profileId
         } catch {
-            self.profileId = BotsiProfileStorage.generateProfileId()
             self.profile = nil
         }
-        
-        
     }
-    
-    func currentProfileId() -> String {
-        return profileId
+
+    /// The saved profile's ID, or `nil` before a profile has been created.
+    func currentProfileId() -> String? {
+        return profile?.profileId
     }
     
     func isExternalAnalyticsDisabled() -> Bool {
@@ -48,36 +44,22 @@ public actor BotsiProfileStorage: Sendable {
         return profile
     }
     
-    func getNewProfileUUID() -> String {
-        let uuid = BotsiProfileStorage.generateProfileId()
-        profileId = uuid
-        return uuid
-    }
-
-    func getProfile(
-        profileId: String,
-        withCustomerUserId customerUserId: String?
-    ) -> BotsiProfile? {
-        guard let savedProfile = profile,
-              savedProfile.profileId == profileId
-        else {
-            return nil
-        }
-        
-        guard let customerUserId else {
-            return savedProfile
-        }
-        
-        return (customerUserId == savedProfile.customerUserId)
-            ? savedProfile
-            : nil
-    }
-    
+    /// Saves `newProfile` when there's no current profile or it is the current one. A late reply for a
+    /// profile the user has since left is ignored.
     func setProfile(_ newProfile: BotsiProfile) async {
+        var newProfile = newProfile
+        if let profile {
+            guard profile.profileId == newProfile.profileId else {
+                BotsiLog.debug("Ignoring profile \(newProfile.profileId): \(profile.profileId) is current.")
+                return
+            }
+            if !newProfile.includesCustom {
+                newProfile = newProfile.withCustom(profile.custom)
+            }
+        }
         do {
             try await storageManager.save(newProfile, forKey: UserDefaultKeys.User.userProfile)
             profile = newProfile
-            profileId = newProfile.profileId
             BotsiLog.debug("Profile updated successfully with ID: \(newProfile.profileId)")
         } catch {
             BotsiLog.error("Failed to save profile. \(error.localizedDescription)")
@@ -100,9 +82,9 @@ public actor BotsiProfileStorage: Sendable {
         await storageManager.delete(forKey: UserDefaultKeys.User.syncedTransactions)
         await storageManager.delete(forKey: UserDefaultKeys.User.lastSyncedTransactionId)
         await storageManager.delete(forKey: UserDefaultKeys.User.asaToken)
-       
+        await storageManager.delete(forKey: UserDefaultKeys.User.environment)
+
         profile = nil
-        profileId = BotsiProfileStorage.generateProfileId()
         asaTokenUpdated = false
         syncedTransactions = false
        
@@ -110,12 +92,16 @@ public actor BotsiProfileStorage: Sendable {
         
         BotsiLog.debug("Profile cleared.")
     }
-    
-    private static func generateProfileId() -> String {
-        let newId = UUID().uuidString.lowercased()
-        return newId
+
+    /// The device and app details last sent to Botsi for the saved profile.
+    func savedEnvironment() async -> BotsiEnvironment? {
+        try? await storageManager.retrieve(BotsiEnvironment.self, forKey: UserDefaultKeys.User.environment)
     }
-    
+
+    func setSavedEnvironment(_ environment: BotsiEnvironment) async {
+        try? await storageManager.save(environment, forKey: UserDefaultKeys.User.environment)
+    }
+
     func setASATokenUpdated(_ value: Bool) async {
         BotsiLog.debug("ASA token updated: \(value)")
         try? await storageManager.save(value, forKey: UserDefaultKeys.User.asaToken)
@@ -144,13 +130,10 @@ import AdServices
 
 public extension Botsi {
     func updateASAToken(_ profileId: String) async {
-        let repository = ASATokenRepository(httpClient: botsiClient)
-        let useCase = BotsiASATokenUseCase(repository: repository)
         do {
             guard await !profileStorage.isASATokenUpdated() else { return }
             let token = try getASAToken()
-            let updatedProfile = try await useCase.execute(profileId: profileId, token: token)
-            await profileStorage.setProfile(updatedProfile)
+            try await profilesRepository.sendAppleSearchAdsToken(profileId: profileId, token: token)
             await profileStorage.setASATokenUpdated(true)
         } catch let error as BotsiError {
             BotsiLog.warn("ASA token update failed with botsi error: \(error.localizedDescription)")

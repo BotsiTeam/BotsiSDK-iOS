@@ -8,84 +8,44 @@
 import Foundation
 import StoreKit
 
-@BotsiActor
-final class BotsiEnvironment: Sendable {
-    let storeCountry: String
-    let botsiSdkVersion: String
-    let advertisingId: String
-    let androidId: String
-    let appBuild: String
-    let androidAppSetId: String
-    let appVersion: String
+/// The device and app details a Botsi profile stores. `POST profiles` requires them, and the SDK
+/// sends them again through `PATCH profiles/{profileId}` when an app or OS update changes them.
+struct BotsiEnvironment: Codable, Equatable, Sendable {
+    let country: String
     let device: String
-    let deviceId: String
-    let locale: String
     let os: String
     let platform: String
-    let timezone: String
+    let appVersion: String
+    let appBuild: String?
+    let locale: String?
     
-    init() async throws {
-        self.storeCountry = try await StorefrontManager().getStorefront().countryCode
-        self.botsiSdkVersion = Botsi.sdkVersion
-        self.advertisingId = UUID().uuidString
-        self.androidId = UUID().uuidString
-        self.appBuild = Application.build ?? "undefined"
-        self.androidAppSetId = UUID().uuidString
-        self.appVersion = Application.version ?? "undefined"
-        self.device = Device.name
-        self.deviceId = await Device.getIdentifierForVendor()
-        self.locale = SystemLocaleProvider().getUserLocale().languageCode
-        self.os = await BotsiSystemInfo.versionInfo
-        self.platform = await BotsiSystemInfo.systemName.lowercased()
-        self.timezone = TimeZone.current.identifier
-    }
-}
-
-struct BotsiStorefront {
-    let id: String
-    let countryCode: String
-}
-
-protocol StorefrontProvider {
-    func fetchStorefront() async throws -> BotsiStorefront
-}
-
-final class StoreKitSimulatorMockProvider: StorefrontProvider {
-    func fetchStorefront() async throws -> BotsiStorefront {
-        return .init(id: UUID().uuidString, countryCode: "en")
-    }
-}
-
-final class StoreKit2Provider: StorefrontProvider {
-    func fetchStorefront() async throws -> BotsiStorefront {
-        let storefront = await Storefront.current
-        if let storefront {
-            BotsiLog.info("Storefront \(storefront.countryCode)")
-        }
-        return BotsiStorefront(id: storefront?.id ?? "unknown", countryCode: storefront?.countryCode ?? "default")
+    @BotsiActor
+    static func current() async -> BotsiEnvironment {
+        BotsiEnvironment(
+            country: await StorefrontManager().countryCode(),
+            device: Device.name,
+            os: await BotsiSystemInfo.versionInfo,
+            platform: await BotsiSystemInfo.systemName.lowercased(),
+            appVersion: Application.version ?? "undefined",
+            appBuild: Application.build,
+            locale: SystemLocaleProvider().getUserLocale().languageCode
+        )
     }
 }
 
 final class StorefrontManager {
-    
-    private let provider: StorefrontProvider
-    
-    init() {
-        if BotsiEnvironment.Device.isSimulator {
-            self.provider = StoreKitSimulatorMockProvider()
-        } else {
-            self.provider = StoreKit2Provider()
+    /// The App Store storefront's country (ISO alpha-3, such as `USA`), or the device region
+    /// (alpha-2) when there is no storefront, as in the simulator.
+    func countryCode() async -> String {
+        if !BotsiEnvironment.Device.isSimulator, let storefront = await Storefront.current {
+            BotsiLog.info("Storefront \(storefront.countryCode)")
+            return storefront.countryCode
         }
+        if let region = Locale.current.region?.identifier, region.count == 2, region.allSatisfy(\.isLetter) {
+            return region
+        }
+        return "US"
     }
-    
-    func getStorefront() async throws -> BotsiStorefront {
-        return try await provider.fetchStorefront()
-    }
-}
-
-enum StorefrontError: Error {
-    case storefrontUnavailable
-    case unknownError
 }
 
 
@@ -127,18 +87,6 @@ extension BotsiEnvironment {
                 }
             #endif
         }()
-        
-        static func getIdentifierForVendor() async -> String {
-            await MainActor.run {
-                #if os(iOS) || os(tvOS) || os(visionOS)
-                return UIDevice.current.identifierForVendor?.uuidString ?? "idfv undefined"
-                #elseif os(watchOS)
-                return WKInterfaceDevice.current().identifierForVendor?.uuidString ?? "idfv undefined"
-                #else
-                return "Unsupported OS"
-                #endif
-            }
-        }
     }
 }
 

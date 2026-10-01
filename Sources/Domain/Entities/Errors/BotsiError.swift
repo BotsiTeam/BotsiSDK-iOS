@@ -30,10 +30,13 @@ public enum BotsiError: Error, Sendable, BotsiErrorConformable {
     
     case unknownError(Error)
     case networkError(String)
+    /// The Botsi API rejected the request. `code` is a stable slug, such as `not_found`; `message` may change.
+    case apiError(status: Int, code: String, message: String)
     
     case transactionFailed
     case restoreFailed
     case transactionDeferred
+    case promoOfferNotConfigured
     case paymentNotAllowed
     case userCancelled
     case receiptValidationFailed(String)
@@ -55,6 +58,8 @@ public enum BotsiError: Error, Sendable, BotsiErrorConformable {
             return "Transaction failed."
         case .transactionDeferred:
             return "Transaction is deferred."
+        case .promoOfferNotConfigured:
+            return "Promotional offers aren't configured: the app's iOS settings in Botsi need a subscription key, bundle ID and issuer ID."
         case .invalidProductIdentifier(let identifier):
             return "Invalid product identifier: \(identifier)"
         case .purchaseFailed(let reason):
@@ -67,6 +72,8 @@ public enum BotsiError: Error, Sendable, BotsiErrorConformable {
             return "An unknown error occurred: \(error.localizedDescription)"
         case .networkError(let message):
             return "Network error: \(message)"
+        case let .apiError(status, code, message):
+            return "Botsi API error \(status) (\(code)): \(message)"
         case .receiptValidationFailed(let message):
             return "Receipt validation failed: \(message)"
         case .customError(let title, let message):

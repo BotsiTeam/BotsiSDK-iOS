@@ -15,16 +15,12 @@ extension BotsiPurchasesManagerConformable {
     func completeTransaction(
         with transaction: Transaction,
         product: Product,
-        paywallId: Int?,
-        abTestId: Int?,
-        placementId: String? = nil
+        paywall: PaywallMeta?
     ) async -> BotsiPaymentTransaction {
         return BotsiPaymentTransaction(
             with: product,
             transaction: transaction,
-            paywallId: paywallId,
-            abTestId: abTestId,
-            placementId: placementId
+            paywall: paywall
         )
     }
 }

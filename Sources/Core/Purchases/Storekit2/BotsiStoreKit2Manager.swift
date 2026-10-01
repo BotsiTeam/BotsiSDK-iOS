@@ -9,15 +9,22 @@ import StoreKit
 
 public actor StoreKit2Handler {
     
-    private let client: BotsiHttpClient
     private let storage: BotsiProfileStorage
+    private let profilesRepository: BotsiProfilesRepository
+    private let purchasesRepository: BotsiPurchasesRepository
     private let mapper: BotsiStoreKit2TransactionMapper = .init()
     private let paywallStorage: BotsiPaywallMappingStorage
     
     public init(client: BotsiHttpClient, storage: BotsiProfileStorage) {
-        self.client = client
         self.storage = storage
+        self.profilesRepository = BotsiProfilesRepository(httpClient: client)
+        self.purchasesRepository = BotsiPurchasesRepository(httpClient: client)
         self.paywallStorage = BotsiPaywallMappingStorage()
+    }
+    
+    /// Starts validating transactions StoreKit delivers outside a purchase: renewals, Ask to Buy approvals,
+    /// purchases from other devices, and ones left unfinished. Call once a profile exists to validate them against.
+    func startObservingTransactions() {
         Task {
             await self.startObservingTransactionUpdates()
         }
@@ -75,23 +82,29 @@ public actor StoreKit2Handler {
                 #endif
 
             case let .promotional(offerId):
-                let repository = SignPromotionalOfferRepository(httpClient: client)
-                let useCase = SignPromotionalOfferUseCase(repository: repository)
                 do {
-                    let signedOffer = try await useCase.getSignedPromotionalOffer(productId: product.productId, offerId: offerId)
+                    let signedOffer = try await purchasesRepository.promotionalSignature(
+                        profileId: try await requireProfileId(),
+                        productId: product.productId,
+                        offerId: offerId
+                    )
+                    guard let signature = Data(base64Encoded: signedOffer.signature) else {
+                        throw BotsiError.customError("SK2PromotionalOffer", "Signature isn't valid base64")
+                    }
                     
                     options = [
                         .promotionalOffer(
                             offerID: offerId,
                             keyID: signedOffer.keyId,
                             nonce: signedOffer.nonce,
-                            signature: signedOffer.signature,
-                            timestamp: Int(signedOffer.timestamp)!
+                            signature: signature,
+                            timestamp: signedOffer.timestamp
                         )
                     ]
-                } catch let error as BotsiError {
-                    BotsiLog.warn("Failed to sign promotional offer \(offerId). Proceeding with the purchase without promo offer... \(error.localizedDescription)")
-                    options = []
+                } catch BotsiError.promoOfferNotConfigured {
+                    // Buying without the offer would charge full price for a discount the paywall showed.
+                    BotsiLog.error("Promotional offer \(offerId) can't be signed: \(BotsiError.promoOfferNotConfigured.localizedDescription)")
+                    throw BotsiError.promoOfferNotConfigured
                 } catch {
                     BotsiLog.warn("Failed to sign promotional offer \(offerId). Proceeding with the purchase without promo offer... \(error.localizedDescription)")
                     options = []
@@ -108,26 +121,22 @@ public actor StoreKit2Handler {
                 throw BotsiError.transactionFailed
             case .verified(let transaction):
                 BotsiLog.info("Transaction is OK. \(transaction.id)")
+                let paywallMeta = (product as? BotsiSK2PaywallProduct)?.paywall
                 let botsiTransaction = await mapper.completeTransaction(
                     with: transaction,
                     product: skProduct,
-                    paywallId: product.paywallId,
-                    abTestId: product.abTestId,
-                    placementId: product.placementId
+                    paywall: paywallMeta
                 )
                 let profile = try await validateTransaction(
                     botsiTransaction,
                     source: .purchasing
                 )
-                let paywallMeta = PaywallMeta(
-                    paywallId: product.paywallId,
-                    placementId: product.placementId,
-                    abTestId: product.abTestId
-                )
-                await paywallStorage.setPaywallMeta(
-                    paywallMeta,
-                    for: skProduct.id
-                )
+                if let paywallMeta {
+                    await paywallStorage.setPaywallMeta(
+                        paywallMeta,
+                        for: skProduct.id
+                    )
+                }
                 await transaction.finish()
                 return profile
             }
@@ -169,9 +178,7 @@ public actor StoreKit2Handler {
                     let botsiTransaction = await mapper.completeTransaction(
                         with: transaction,
                         product: product,
-                        paywallId: current?.paywallId ?? cached?.paywallId ?? nil,
-                        abTestId: nil,
-                        placementId: current?.placementId ?? cached?.placementId
+                        paywall: current ?? cached
                     )
               
                     let updatedProfile = try await validateTransaction(
@@ -189,19 +196,12 @@ public actor StoreKit2Handler {
                         
                     await transaction.finish()
                 } catch {
-                    if let botsiError = error as? BotsiError {
-                        BotsiLog.error("StoreKit 2 Error: \(botsiError.localizedDescription)")
-                    } else {
-                        let validationError = error as NSError
-                        if validationError.isRetryableError() {
-                            BotsiLog.error("StoreKit 2 Retrayable error: \(validationError.localizedDescription)")
-                            processedTransactionIds.remove(transaction.id)
-                            continue
-                        } else {
-                            BotsiLog.error("StoreKi 2 Validation error: \(validationError.localizedDescription)")
-                        }
+                    if error.isRetryable {
+                        BotsiLog.error("StoreKit 2. Retryable error: \(error.localizedDescription)")
+                        processedTransactionIds.remove(transaction.id)
+                        continue
                     }
-            
+                    BotsiLog.error("StoreKit 2. Validation error: \(error.localizedDescription)")
                     await transaction.finish()
                 }
                 
@@ -217,15 +217,9 @@ public actor StoreKit2Handler {
     
     @discardableResult
     private func validateTransaction(_ transaction: BotsiPaymentTransaction, source: StoreKitTransactionSource) async throws -> BotsiProfile {
-        guard let storedProfile = await storage.getProfile() else {
-            throw BotsiError.customError("SK2.ValidateTransaction", "Unable to retrieve profile id")
-        }
-        let repository = ValidateTransactionRepository(
-            httpClient: client,
-            profileId: storedProfile.profileId
-        )
-        let profileFetched = try await repository.validateTransaction(
-            transaction: transaction,
+        let profileFetched = try await purchasesRepository.validateTransaction(
+            transaction,
+            profileId: try await requireProfileId(),
             source: source
         )
         await storage.setProfile(profileFetched)
@@ -233,58 +227,79 @@ public actor StoreKit2Handler {
         return profileFetched
     }
     
-    private func restoreTransactions() async throws -> BotsiProfile {
-        guard let storedProfile = await storage.getProfile() else {
-            throw BotsiError.customError("Restore transaction", "Unable to retrieve profile id")
-        }
-        let repository = RestorePurchaseRepository(httpClient: client, profileId: storedProfile.profileId)
-        let helper = ReceiptRefreshHelper()
-        var receipt: Data
-        
-        do {
-            let receiptData = try await helper.refreshReceipt()
-            receipt = receiptData
-        } catch {
-            guard let receiptURL = Bundle.main.appStoreReceiptURL else {
-                throw BotsiError.customError("SK2. Restore.", "Unable to fetch receipt data from the app. The request could be throttled.")
+    /// Restores the user's App Store subscription onto the current profile.
+    ///
+    /// The SDK sends the original transaction ID of the newest subscription StoreKit says the user is entitled to.
+    /// With none, or when Botsi finds no subscription for it, the current profile is returned unchanged.
+    ///
+    /// - Parameter syncWithAppStore: `true` only when the user asked to restore, for example with a Restore
+    ///   button. StoreKit then syncs the user's transactions and may ask them to sign in to the App Store.
+    public func restorePurchases(syncWithAppStore: Bool = false) async throws -> BotsiProfile {
+        let profileId = try await requireProfileId()
+        if syncWithAppStore {
+            do {
+                try await AppStore.sync()
+            } catch {
+                BotsiLog.warn("StoreKit 2 Restore. App Store sync failed: \(error.localizedDescription)")
             }
-            let receiptData = try Data(contentsOf: receiptURL)
-            receipt = receiptData
         }
         
-        let profileFetched = try await repository.restore(receipt: receipt)
-        await storage.setProfile(profileFetched)
-        BotsiLog.info("StoreKit 2 Restore. Profile received after restoring transaction: \(profileFetched.profileId) with access levels: \(profileFetched.accessLevels.first?.key ?? "[]")")
-        return profileFetched
-    }
-
-    public func restorePurchases() async throws -> BotsiProfile {
-        return try await restoreTransactions()
+        let profile: BotsiProfile
+        if let originalTransactionId = await latestSubscriptionOriginalTransactionId() {
+            do {
+                profile = try await purchasesRepository.restore(
+                    profileId: profileId,
+                    originalTransactionId: String(originalTransactionId)
+                )
+            } catch let error as BotsiError where error.apiErrorCode == BotsiAPIErrorCode.nothingToRestore {
+                BotsiLog.info("StoreKit 2 Restore. Botsi found no subscription for transaction \(originalTransactionId).")
+                profile = try await profilesRepository.getProfile(profileId: profileId)
+            }
+        } else {
+            BotsiLog.info("StoreKit 2 Restore. StoreKit has no subscription to restore.")
+            profile = try await profilesRepository.getProfile(profileId: profileId)
+        }
+        
+        await storage.setProfile(profile)
+        BotsiLog.info("StoreKit 2 Restore. Profile \(profile.profileId) with access levels: \(profile.accessLevels.first?.key ?? "[]")")
+        return profile
     }
     
-    public func refreshReceipt() async throws -> Data {
-        let helper = ReceiptRefreshHelper()
-        let receiptData = try await helper.refreshReceipt()
-        return receiptData
+    /// The original transaction ID of the most recently bought auto-renewable subscription the user is entitled to.
+    private func latestSubscriptionOriginalTransactionId() async -> UInt64? {
+        var latest: Transaction?
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result, transaction.productType == .autoRenewable else {
+                continue
+            }
+            if transaction.purchaseDate > latest?.purchaseDate ?? .distantPast {
+                latest = transaction
+            }
+        }
+        return latest?.originalID
+    }
+    
+    private func requireProfileId() async throws -> String {
+        guard let profileId = await storage.currentProfileId() else {
+            throw BotsiError.userProfileNotFound
+        }
+        return profileId
     }
 }
 
-private extension NSError {
-    func isRetryableError() -> Bool {
-        if domain == NSURLErrorDomain {
-            let retryableCodes: [Int] = [
-                NSURLErrorTimedOut,
-                NSURLErrorCannotConnectToHost,
-                NSURLErrorNetworkConnectionLost,
-                NSURLErrorNotConnectedToInternet
-            ]
-            return retryableCodes.contains(code)
+private extension Error {
+    /// Network failures, rate limiting and server faults can succeed on a later attempt, as can a
+    /// transaction that arrives before a profile exists to validate it against.
+    var isRetryable: Bool {
+        if let botsiError = self as? BotsiError {
+            if case .userProfileNotFound = botsiError {
+                return true
+            }
+            return botsiError.isRetryableAPIError
         }
-        
-        if domain == "BotsiHTTPError" && code >= 500 && code < 600 {
-            return true
+        if let urlError = self as? URLError {
+            return [.timedOut, .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet].contains(urlError.code)
         }
-        
         return false
     }
 }

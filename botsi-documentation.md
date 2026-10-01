@@ -76,22 +76,22 @@ do {
 }
 ```
 
-### `activate(_ key:customerUserId:)`
+### `activate(_ key:appUserId:)`
 ```swift
-static func activate(_ key: String, customerUserId: String?) async throws
+static func activate(_ key: String, appUserId: String?) async throws
 ```
 
 Activates and initializes the Botsi SDK with your public key and optionally links it to a specific user in your system.
 
 **Parameters:**
-- `key`: Your Botsi SDK API key
-- `customerUserId`: Optional identifier for the user in your system. If provided, the SDK profile will be linked to this user immediately upon activation.
+- `key`: Your app's public SDK key from the Botsi dashboard. Never put your app secret key in an app.
+- `appUserId`: Optional identifier for the user in your system. If provided, the SDK profile will be linked to this user immediately upon activation. Botsi finds the user's existing profile when it already knows this ID.
 
 **Example:**
 ```swift
 do {
     // Activate with user ID for immediate user linking
-    try await Botsi.activate("your_api_key", customerUserId: "user_12345")
+    try await Botsi.activate("your_public_sdk_key", appUserId: "user_12345")
     // SDK is now initialized and linked to the specified user
 } catch let error as BotsiError {
     print("Failed to initialize Botsi SDK: \(error.localizedDescription)")
@@ -198,7 +198,7 @@ static func updateProfile(_ profileUpdate: BotsiUserProfileInformation) async th
 
 Updates the current user's profile with the provided information.
 
-This method allows you to associate user profile information including birthday, email, username, gender, and phone. All fields are optional.
+This method allows you to associate user profile information including birthday, email, username, gender, and phone. All fields are optional, and fields you leave out keep their current values. Custom attributes are added, or updated when their key already exists.
 
 **Parameters:**
 - `profileUpdate`: A `BotsiUserProfileInformation` object containing the fields to update.
@@ -244,7 +244,6 @@ public struct BotsiUserProfileInformation {
     public let custom: [BotsiProfile.BotsiCustomEntry]?
     public let idfa: String?
     public let advertisingId: String?
-    public let ip: String?
 }
 ```
 
@@ -293,7 +292,9 @@ do {
 static func restorePurchases() async throws -> BotsiProfile
 ```
 
-Restores previously purchased products for the current user.
+Restores the user's App Store subscription onto the current profile. Call it from a Restore Purchases button: StoreKit syncs the user's transactions first and may ask them to sign in to the App Store.
+
+The SDK also restores automatically, without any prompt, whenever it creates a profile. When there is nothing to restore, the profile is returned unchanged rather than as an error, so check its `accessLevels`.
 
 **Returns:**
 - `BotsiProfile`: Updated user profile with restored purchases.
@@ -325,12 +326,40 @@ Retrieves a paywall configuration for the specified placement ID.
 - `placementId`: The identifier of the paywall placement.
 
 **Returns:**
-- `BotsiPaywall`: The paywall configuration with UI elements and product references.
+- `BotsiPaywall`: The paywall Botsi chose for the placement and its products.
 
 **Throws:**
-- `BotsiError.userProfileNotFound`: If no user profile exists.
-- `BotsiError.sdkActivationKeyNotValid`: If user entered wrong public key.
-- `BotsiError.customError`: With details if there are issues with fetching profile.
+- `BotsiError.paywallFetchingFailed`: If no user profile exists.
+- `BotsiError.sdkActivationKeyNotValid`: If the public key is wrong.
+- `BotsiError.apiError`: With the status, code and message if Botsi rejects the request.
+
+**BotsiPaywall Structure:**
+```swift
+public struct BotsiPaywall {
+    public let placementId: String
+    public let id: Int
+    public let externalId: String?
+    public let name: String
+    public let isExperiment: Bool          // AI pricing chose this paywall as an experiment
+    public let aiPricingModelId: Int?
+    public let paywallSessionId: String    // links views and purchases to this display
+    public let products: [BotsiPaywallProduct]
+}
+
+public struct BotsiPaywallProduct {
+    public let paywallProductId: Int
+    public let name: String
+    public let period: String              // e.g. "monthly", "annual", "lifetime"
+    public let appStore: BotsiAppStoreProduct?   // nil when not sold on the App Store
+}
+
+public struct BotsiAppStoreProduct {
+    public let productId: String
+    public let offerId: String?
+    public let promotionalOfferId: String?
+    public let offerType: String?          // e.g. "promotional", "win_back"
+}
+```
 
 **Example:**
 ```swift
@@ -378,7 +407,7 @@ do {
     static func logPaywallShown(for paywall: BotsiPaywall) async throws
 ```
 
-Sends an event to collect analytics. Should be called together with getPaywall(from:)
+Reports that the user saw the paywall. Call it once per display, within about 24 hours of `getPaywall(from:)`; after that, fetch the paywall again.
 
 **Example:**
 ```swift
@@ -400,6 +429,8 @@ The SDK uses `BotsiError` for error reporting. Common errors include:
 - `BotsiError.customError`: Custom errors with detailed information
 - `BotsiError.paywallFetchingFailed`: Failed to fetch paywall information
 - `BotsiError.sdkActivationKeyNotValid`: Incorrect public key provided
+- `BotsiError.promoOfferNotConfigured`: The app's iOS settings in Botsi can't sign promotional offers, so the purchase didn't start
+- `BotsiError.apiError(status:code:message:)`: Botsi rejected the request; `code` is a stable slug such as `not_found`
     
 
 Properly handle these errors in your application to provide appropriate feedback to users.
@@ -411,13 +442,13 @@ The Botsi SDK provides an Objective-C bridge (`BotsiObjCBridge.swift`) that enab
 ### Core Components
 
 **`BotsiObjCProfile` (Class)**
-User profile with subscription and access information including `profileId`, `customerUserId`, `accessLevels`, `subscriptions`, `nonSubscriptions`, and `custom` data.
+User profile with subscription and access information including `profileId`, `appUserId`, `accessLevels`, `subscriptions`, `nonSubscriptions`, and `custom` data.
 
 **`BotsiObjCProduct` (Class)**
 In-app purchase product representation with pricing, subscription details, and offer eligibility information.
 
 **`BotsiObjCPaywall` (Class)**
-Paywall configuration and metadata including placement ID, paywall ID, name, and configuration details.
+The paywall Botsi chose for a placement: `placementId`, `paywallId`, `externalId`, `name`, `isExperiment`, `aiPricingModelId` and `paywallSessionId`.
 
 **`BotsiObjCUserProfileInformation` (Class)**
 Comprehensive user profile container including personal info, demographics, custom data, and device identifiers.
@@ -438,9 +469,9 @@ Primary interface for all SDK operations. All methods are static and use complet
 + (void)activate:(NSString *)key 
        completion:(void(^)(BotsiObjCError * _Nullable error))completion;
 
-// Activate with Public Key and Customer user ID
+// Activate with Public Key and your user ID
 + (void)activate:(NSString *)key 
-   customerUserId:(NSString * _Nullable)customerUserId 
+        appUserId:(NSString * _Nullable)appUserId 
        completion:(void(^)(BotsiObjCError * _Nullable error))completion;
 
 // Identify user within your internal user management system
