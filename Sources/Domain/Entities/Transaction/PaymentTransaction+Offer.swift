@@ -60,45 +60,6 @@ public struct BotsiSubscriptionOffer: Sendable, CustomStringConvertible {
     }
     
     init?(
-        transaction: SKPaymentTransaction,
-        product: SKProduct?
-    ) {
-        guard let offerId = transaction.transactionIdentifier else {
-            let discount = product?.subscriptionOffer( // SKProductDiscount
-                byType: .introductory
-            )
-            guard let discount else { return nil }
-
-            self.init(
-                id: nil,
-                period: discount.subscriptionPeriod.toCustomPeriod,
-                paymentMode: discount.paymentMode.asPaymentMode,
-                offerType: .introductory,
-                price: discount.price.decimalValue
-            )
-            return
-        }
-
-        let discount = product?.subscriptionOffer(
-            byType: .promotional,
-            withId: offerId
-        )
-
-        if let discount {
-            self.init(
-                id: discount.identifier,
-                period: discount.subscriptionPeriod.toCustomPeriod,
-                paymentMode: discount.paymentMode.asPaymentMode,
-                offerType: .promotional,
-                price: discount.price.decimalValue
-            )
-        } else {
-            self.init(id: offerId, offerType: .promotional)
-        }
-    }
-    
-    @available(iOS 15.0, *)
-    init?(
         transaction: Transaction,
         product: Product?
     ) {
@@ -120,27 +81,6 @@ public struct BotsiSubscriptionOffer: Sendable, CustomStringConvertible {
     }
 }
 
-/// `StoreKit 1 Offer`
-extension SKProduct {
-    func subscriptionOffer(
-        byType offerType: BotsiPaymentTransaction.OfferType,
-        withId offerId: String? = nil
-    ) -> SKProductDiscount? {
-        switch offerType {
-        case .introductory:
-            return introductoryPrice
-        case .promotional:
-            if let offerId {
-                return discounts.first(where: { $0.identifier == offerId })
-            }
-        default:
-            return nil
-        }
-        return nil
-    }
-}
-
-@available(iOS 15.0, *)
 extension Transaction.OfferType {
     var asPurchasedTransactionOfferType: BotsiPaymentTransaction.OfferType {
         guard let type = BotsiPaymentTransaction.OfferType(rawValue: rawValue) else {

@@ -19,13 +19,10 @@ public actor StoreKit2Handler {
         self.storage = storage
         self.paywallStorage = BotsiPaywallMappingStorage()
         Task {
-            if #available(iOS 15.0, *) {
-                await self.startObservingTransactionUpdates()
-            }
+            await self.startObservingTransactionUpdates()
         }
     }
     
-    @available(iOS 15.0, *)
     public func retrieveProductAsync(with productIDs: [String]) async throws -> [Product] {
         let products = try await Product.products(for: productIDs)
         BotsiLog.debug("SK2. Products retrieved: \(products.count)")
@@ -42,7 +39,6 @@ public actor StoreKit2Handler {
         return sortedProducts
     }
     
-    @available(iOS 15.0, *)
     private func sortProducts(_ products: [Product], by identifiers: [String]) -> [Product] {
         var productMap = [String: Product]()
         for product in products {
@@ -51,7 +47,6 @@ public actor StoreKit2Handler {
         return identifiers.compactMap { productMap[$0] }
     }
     
-    @available(iOS 15.0, *)
     public func purchaseSK2(_ product: BotsiProduct) async throws -> BotsiProfile {
         guard let skProduct = product.sk2Product else {
             throw BotsiError.customError("SK2PurchaseError", "Unable to unwrap SK2 Product")
@@ -94,9 +89,6 @@ public actor StoreKit2Handler {
                             timestamp: Int(signedOffer.timestamp)!
                         )
                     ]
-                } catch let error as SKError {
-                    BotsiLog.warn("Failed to sign promotional offer \(offerId). Proceeding with the purchase without promo offer... SKError: \(error.errorCode) \(error.localizedDescription)")
-                    options = []
                 } catch let error as BotsiError {
                     BotsiLog.warn("Failed to sign promotional offer \(offerId). Proceeding with the purchase without promo offer... \(error.localizedDescription)")
                     options = []
@@ -151,7 +143,6 @@ public actor StoreKit2Handler {
         }
     }
     
-    @available(iOS 15.0, *)
     private func startObservingTransactionUpdates() async {
         var processedTransactionIds = Set<UInt64>()
                 
@@ -222,7 +213,6 @@ public actor StoreKit2Handler {
     }
     
     /// `post notification to UI update`
-    @available(iOS 15.0, *)
     private func notifySubscriptionRenewal(product: Product, profile: BotsiProfile) async {}
     
     @discardableResult
@@ -268,7 +258,6 @@ public actor StoreKit2Handler {
         return profileFetched
     }
 
-    @available(iOS 15.0, *)
     public func restorePurchases() async throws -> BotsiProfile {
         return try await restoreTransactions()
     }

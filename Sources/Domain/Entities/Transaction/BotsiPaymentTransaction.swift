@@ -67,18 +67,3 @@ extension BotsiPaymentTransaction {
     }
 }
 
-extension BotsiPaymentTransaction {
-    static public func getEnvironmentSK1() -> String {
-        guard let appStoreReceiptURL = Bundle.main.appStoreReceiptURL else {
-            return "unknown"
-        }
-        
-        let receiptPath = appStoreReceiptURL.path
-        if receiptPath.contains("sandboxReceipt") {
-            return "sandbox"
-        } else {
-            return "production"
-        }
-    }
-}
-

@@ -56,16 +56,6 @@ final class StoreKitSimulatorMockProvider: StorefrontProvider {
     }
 }
 
-final class StoreKit1Provider: StorefrontProvider {
-    func fetchStorefront() async throws -> BotsiStorefront {
-        guard let storefront = SKPaymentQueue.default().storefront else {
-            throw StorefrontError.storefrontUnavailable
-        }
-        return BotsiStorefront(id: storefront.identifier, countryCode: storefront.countryCode)
-    }
-}
-
-@available(iOS 15.0, macOS 12.0, *)
 final class StoreKit2Provider: StorefrontProvider {
     func fetchStorefront() async throws -> BotsiStorefront {
         let storefront = await Storefront.current
@@ -81,14 +71,10 @@ final class StorefrontManager {
     private let provider: StorefrontProvider
     
     init() {
-        if #available(iOS 15.0,macOS 12.0, *) {
-            if BotsiEnvironment.Device.isSimulator {
-                self.provider = StoreKitSimulatorMockProvider()
-            } else {
-                self.provider = StoreKit2Provider()
-            }
+        if BotsiEnvironment.Device.isSimulator {
+            self.provider = StoreKitSimulatorMockProvider()
         } else {
-            self.provider = StoreKit1Provider()
+            self.provider = StoreKit2Provider()
         }
     }
     

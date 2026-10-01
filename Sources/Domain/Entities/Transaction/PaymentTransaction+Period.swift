@@ -34,42 +34,7 @@ public struct BotsiSubscriptionPeriod: Sendable, Hashable {
     }
 }
 
-/// `StoreKit 1`
-extension SKProduct.PeriodUnit {
-    var asCutomPerioudUnit: BotsiSubscriptionPeriod.BotsiSubscriptionPeriodUnit {
-        switch self {
-        case .day: .day
-        case .week: .week
-        case .month: .month
-        case .year: .year
-        @unknown default: .unknown
-        }
-    }
-}
-
-extension SKProductSubscriptionPeriod {
-    var toCustomPeriod: BotsiSubscriptionPeriod {
-        .init(unit: unit.asCutomPerioudUnit, numberOfUnits: numberOfUnits)
-    }
-}
-
-extension SKProductDiscount.PaymentMode {
-    var asPaymentMode: BotsiSubscriptionOffer.BotsiPaymentMode {
-        switch self {
-        case .payAsYouGo:
-            .payAsYouGo
-        case .payUpFront:
-            .payUpFront
-        case .freeTrial:
-            .freeTrial
-        @unknown default:
-            .unknown
-        }
-    }
-}
-
 /// `StoreKit 2`
-@available(iOS 15.0, *)
 extension Product.SubscriptionPeriod.Unit {
     var toPeriodUnit: BotsiSubscriptionPeriod.BotsiSubscriptionPeriodUnit {
         switch self {
@@ -87,7 +52,6 @@ extension Product.SubscriptionPeriod.Unit {
     }
 }
 
-@available(iOS 15.0, macOS 12.0, tvOS 15.0, watchOS 8.0, visionOS 1.0, *)
 extension Product.SubscriptionOffer.PaymentMode {
     var asPaymentMode: BotsiSubscriptionOffer.BotsiPaymentMode {
         switch self {

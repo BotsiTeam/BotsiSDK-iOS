@@ -115,4 +115,3 @@ public struct BotsiErrorBuilder {
     }
 }
 
-typealias SK1Error = SKError

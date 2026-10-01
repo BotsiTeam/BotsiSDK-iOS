@@ -9,31 +9,6 @@ import StoreKit
 
 extension BotsiPaymentTransaction {
     
-    init(with product: SKProduct,
-         transaction: SKPaymentTransaction,
-         paywallId: Int? = nil,
-         abTestId: Int? = nil,
-         placementId: String? = nil
-    ) {
-        let offer = BotsiSubscriptionOffer(transaction: transaction, product: product)
-        self.transactionId = transaction.transactionIdentifier ?? transaction.original?.transactionIdentifier ?? ""
-        self.originalTransactionId = transaction.original?.transactionIdentifier ?? transaction.transactionIdentifier ?? ""
-        self.sourceProductId = transaction.payment.productIdentifier
-        self.originalPrice = product.price.decimalValue
-        self.priceLocale = product.priceLocale.currencyCode
-        self.storeCountry = product.priceLocale.regionCode
-        self.offer = offer
-        self.promotionalOfferId = offer?.id ?? ""
-        self.discountPrice = "\(offer?.price ?? 0)"
-        self.productId = product.productIdentifier
-        self.environment = BotsiPaymentTransaction.getEnvironmentSK1()
-        self.paywallId = paywallId
-        self.abTestId = abTestId
-        self.isSubscription = offer != nil
-        self.placementId = placementId
-    }
-    
-    @available(iOS 15.0, *)
     init(with product: Product,
          transaction: Transaction,
          paywallId: Int? = nil,
@@ -46,25 +21,14 @@ extension BotsiPaymentTransaction {
         self.sourceProductId = transaction.productID
         self.originalPrice = Decimal(string: product.price.description)
         self.priceLocale = product.priceFormatStyle.currencyCode
-        if #available(macOS 13, *) {
-            if #available(iOS 16, *) {
-                self.storeCountry = Locale.current.region?.identifier
-                switch transaction.environment {
-                case .sandbox:
-                    self.environment = "sandbox"
-                case .production:
-                    self.environment = "production"
-                default:
-                    self.environment = "unknown"
-                }
-            } else {
-                self.storeCountry = product.subscriptionPeriodFormatStyle.locale.identifier
-                self.environment = BotsiPaymentTransaction.getEnvironmentSK1()
-            }
-            
-        } else {
-            self.storeCountry = product.subscriptionPeriodFormatStyle.locale.identifier
-            self.environment = BotsiPaymentTransaction.getEnvironmentSK1()
+        self.storeCountry = Locale.current.region?.identifier
+        switch transaction.environment {
+        case .sandbox:
+            self.environment = "sandbox"
+        case .production:
+            self.environment = "production"
+        default:
+            self.environment = "unknown"
         }
         self.offer = offer
         self.promotionalOfferId = offer?.id ?? ""
@@ -78,7 +42,6 @@ extension BotsiPaymentTransaction {
 }
 
 /// `StoreKit 2`
-@available(iOS 15.0, *)
 extension Transaction {
     var isRenewal: Bool {
         return originalID != id
@@ -103,7 +66,6 @@ extension Transaction {
     }
 }
 
-@available(iOS 15.0, *)
 extension Product {
     func subscriptionOffer(
         byType offerType: BotsiPaymentTransaction.OfferType,
