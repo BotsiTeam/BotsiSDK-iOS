@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
     s.name             = "Botsi"
-    s.version          = "1.0.12"
+    s.version          = "2.0.0"
     s.summary          = "Botsi SDK for iOS."
     s.description      = "Seamless integration of in-app-purchases in your iOS application."
     s.homepage         = "https://www.botsi.com/"

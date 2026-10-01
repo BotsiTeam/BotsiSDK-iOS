@@ -4,6 +4,7 @@ The Botsi SDK enables seamless in-app purchases and paywall management in iOS ap
 
 ## Table of Contents
 - [Installation](#installation)
+- [Migrating from 1.x](#migrating-from-1x)
 - [Initialization](#initialization)
 - [Profile Management](#profile-management)
 - [Product Management](#product-management)
@@ -31,7 +32,7 @@ https://github.com/BotsiTeam/BotsiSDK-iOS.git
 4. **Specify the Version**  
 Under the version rule options, select **Version** and specify the SDK version:
 
-Latest version is: 1.0.11
+Latest version is: 2.0.0
 
 5. **Finalize Installation**  
 Xcode will download and integrate the SDK into your project. Once added, you can start using the SDK immediately.
@@ -48,12 +49,44 @@ CocoaPods
 To integrate the BotsiSDK into your project using CocoaPods, follow these steps:
 
 1. **Add the SDK to your Podfile and add the following line:**
-pod 'BotsiSDK', '~> 1.0.11'
+pod 'Botsi', '~> 2.0'
 
 2. **Install the PodRun the following command to install the SDK:**
 pod install
 
 3. **Open the generated .xcworkspace file in Xcode instead of the .xcodeproj.**
+
+## Migrating from 1.x
+
+SDK 2.0 calls only the Botsi V2 API, uses StoreKit 2 only and requires iOS 16. Apps that still support iOS 13–15 should stay on 1.x. Existing users keep their Botsi profiles: the SDK reads the profile 1.x saved and keeps its ID.
+
+The paywall UI library (`BotsiUI`) and `getPaywallBuilder(from:)` are removed. Build your paywall UI in your app from `getPaywall(from:)` and `getPaywallProducts(from:)`.
+
+**Renamed or removed APIs:**
+
+| 1.x | 2.0 |
+| --- | --- |
+| `Botsi.activate(_:customerUserId:)` | `Botsi.activate(_:appUserId:)` |
+| `BotsiConfiguration.set(customerUserIdentifier:)` | `BotsiConfiguration.set(appUserId:)` |
+| `BotsiConfiguration.set(profileIdentifier:)` | Removed; it had no effect |
+| `BotsiProfile.customerUserId` | `BotsiProfile.appUserId` |
+| `BotsiProfile.birthday` | Removed from the profile; still set through `updateProfile(_:)` |
+| `BotsiUserProfileInformation(ip:)` | `BotsiUserProfileInformation(ipAddress:)` |
+| `BotsiPaywall.sourceProducts` | `BotsiPaywall.products`; the App Store product ID is `product.appStore?.productId` |
+| `BotsiPaywall.remoteConfigs`, `revision`, `abTestId` | Removed; the V2 API doesn't return them |
+| `BotsiProduct.abTestId`, `BotsiProduct.sk1Product` | Removed |
+| `BotsiAccessLevel` / `BotsiSubscription` `store` and `sourceProductId` | Now optional |
+| Objective-C `activate:customerUserId:completion:` | `activate:appUserId:completion:` |
+| `BotsiObjCProfile.customerUserId` | `BotsiObjCProfile.appUserId` |
+| `BotsiObjCPaywall.remoteConfigs`, `revision`, `abTestId` | Removed; `externalId`, `isExperiment`, `aiPricingModelId` and `paywallSessionId` added |
+
+**Behavior changes:**
+
+- **Restore:** `restorePurchases()` syncs with the App Store first, so StoreKit may ask the user to sign in. Call it only from a Restore button. When there's nothing to restore, it returns the profile unchanged rather than throwing, so check `accessLevels`. The SDK still restores automatically, without a prompt, whenever it creates a profile.
+- **Signed-in users:** calling `activate(_:)` without an `appUserId` keeps a user you identified earlier. Call `logout()` when the user signs out.
+- **Paywall views:** call `logPaywallShown(for:)` within about 24 hours of `getPaywall(from:)`; after that, fetch the paywall again.
+- **Promotional offers:** if your app's iOS settings in Botsi can't sign offers, the purchase fails with `BotsiError.promoOfferNotConfigured` instead of going ahead at full price.
+- **Errors:** errors returned by Botsi arrive as `BotsiError.apiError(status:code:message:)`.
 
 ## Initialization
 
