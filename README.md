@@ -16,49 +16,47 @@ The Botsi SDK enables seamless in-app purchases and paywall management in iOS ap
 
 **Requirements:** iOS 16.0 or later. The SDK uses StoreKit 2 only. Apps that still support iOS 13–15 should stay on SDK 1.x.
 
-To integrate the BotsiSDK into your project using Swift Package Manager (SPM), follow these steps:
+Install the SDK with Swift Package Manager. It's the only supported way to add Botsi to your app.
 
-1. **Open Your Project in Xcode**  
-   Launch your iOS project in Xcode.
+### Swift Package Manager
 
-2. **Add the Package Dependency**  
-   From the menu, navigate to **File** > **Swift Packages** > **Add Package Dependency...**.
+1. **Open your project in Xcode.**
+2. **Add the package.** Choose **File** > **Add Package Dependencies…** and enter the repository URL:
 
-3. **Enter the Repository URL**  
-   When prompted, enter the repository URL below:
+   ```
+   https://github.com/BotsiTeam/BotsiSDK-iOS.git
+   ```
 
-https://github.com/BotsiTeam/BotsiSDK-iOS.git
+3. **Choose the version.** Set **Dependency Rule** to **Up to Next Major Version** from **2.0.0**, the latest version, then select **Add Package**.
+4. **Add the library.** Add the `Botsi` library to your app target and select **Add Package**.
+5. **Import the SDK** in your source files:
 
-4. **Specify the Version**  
-Under the version rule options, select **Version** and specify the SDK version:
+   ```swift
+   import Botsi
+   ```
 
-Latest version is: 2.0.0
-
-5. **Finalize Installation**  
-Xcode will download and integrate the SDK into your project. Once added, you can start using the SDK immediately.
-
-6. **Import the SDK in Your Code**  
-In your source files, add the following import statement:
+If you declare dependencies in a `Package.swift` file, add the package:
 
 ```swift
-import Botsi
+.package(url: "https://github.com/BotsiTeam/BotsiSDK-iOS.git", from: "2.0.0")
 ```
 
-CocoaPods
+Then add `.product(name: "Botsi", package: "BotsiSDK-iOS")` to your target's dependencies.
 
-To integrate the BotsiSDK into your project using CocoaPods, follow these steps:
+### CocoaPods is no longer supported
 
-1. **Add the SDK to your Podfile and add the following line:**
-pod 'Botsi', '~> 2.0'
+Botsi is no longer supported through CocoaPods, and new versions aren't published there. CocoaPods itself is winding down: its central repository stops accepting new versions on December 2, 2026. Apps that install an earlier Botsi version through CocoaPods keep building, but they won't get updates.
 
-2. **Install the PodRun the following command to install the SDK:**
-pod install
+To move from CocoaPods to Swift Package Manager:
 
-3. **Open the generated .xcworkspace file in Xcode instead of the .xcodeproj.**
+1. Remove the `pod 'Botsi'` line from your `Podfile` and run `pod install`. If Botsi was your only pod, run `pod deintegrate` instead to remove CocoaPods from the project.
+2. Add Botsi with [Swift Package Manager](#swift-package-manager), as above.
 
 ## Migrating from 1.x
 
 SDK 2.0 calls only the Botsi V2 API, uses StoreKit 2 only and requires iOS 16. Apps that still support iOS 13–15 should stay on 1.x. Existing users keep their Botsi profiles: the SDK reads the profile 1.x saved and keeps its ID.
+
+If you installed 1.x through CocoaPods, switch to Swift Package Manager: 2.0 isn't available through CocoaPods. See [CocoaPods is no longer supported](#cocoapods-is-no-longer-supported).
 
 The paywall UI library (`BotsiUI`) and `getPaywallBuilder(from:)` are removed. Build your paywall UI in your app from `getPaywall(from:)` and `getPaywallProducts(from:)`.
 
