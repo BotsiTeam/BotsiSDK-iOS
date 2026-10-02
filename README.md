@@ -58,8 +58,6 @@ SDK 2.0 calls only the Botsi V2 API, uses StoreKit 2 only and requires iOS 16. A
 
 If you installed 1.x through CocoaPods, switch to Swift Package Manager: 2.0 isn't available through CocoaPods. See [CocoaPods is no longer supported](#cocoapods-is-no-longer-supported).
 
-The paywall UI library (`BotsiUI`) and `getPaywallBuilder(from:)` are removed. Build your paywall UI in your app from `getPaywall(from:)` and `getPaywallProducts(from:)`.
-
 **Renamed or removed APIs:**
 
 | 1.x | 2.0 |
