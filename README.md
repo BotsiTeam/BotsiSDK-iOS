@@ -243,8 +243,8 @@ This method allows you to associate user profile information including birthday,
 ```swift
 do {
     let customEntries = [
-        BotsiProfile.BotsiCustomEntry(key: "preference", value: "dark_mode", id: "1"),
-        BotsiProfile.BotsiCustomEntry(key: "region", value: "US", id: "2")
+        BotsiProfile.BotsiCustomEntry(key: "preference", value: "dark_mode", id: ""),
+        BotsiProfile.BotsiCustomEntry(key: "region", value: "US", id: "")
     ]
     
     let profileUpdate = BotsiUserProfileInformation(
@@ -261,6 +261,8 @@ do {
     print("Failed to update profile: \(error)")
 }
 ```
+
+The `id` of a `BotsiCustomEntry` is assigned by the server and isn't sent, so pass an empty string.
 
 **BotsiUserProfileInformation Structure:**
 ```swift
@@ -284,6 +286,26 @@ public enum BotsiGender: String {
     case other = "other"
     case preferNotSay = "preferNotSay"
 }
+```
+
+**Multi-select answers:**
+
+To save the answers to a multi-select question, send one custom entry per option the user was shown:
+
+- Set `key` to `<question>.<option>`, for example `goal.level_up_my_life`. Use lowercase letters, digits, and underscores, and keep the whole key under 120 characters.
+- Keep identifiers stable. If an option's wording changes but its meaning does not, keep its identifier.
+- Set `value` to `"true"` if the user picked the option, and `"false"` if it was shown but not picked. Leave out options the user never saw.
+- Send every shown option in one `updateProfile(_:)` call. If the user changes their answers, send every option for that question again, because options you don't resend keep their previous value.
+- Don't repeat a key, for example one `goal` entry per picked option. Only the last value is saved, with no error.
+
+```swift
+let shownGoals = ["level_up_my_life", "turn_vision_into_action", "get_clarity", "see_if_right_for_me"]
+let pickedGoals: Set<String> = ["level_up_my_life", "get_clarity", "see_if_right_for_me"]
+
+let customEntries = shownGoals.map { goal in
+    BotsiProfile.BotsiCustomEntry(key: "goal.\(goal)", value: String(pickedGoals.contains(goal)), id: "")
+}
+try await Botsi.updateProfile(BotsiUserProfileInformation(custom: customEntries))
 ```
 
 ## Purchase Operations
