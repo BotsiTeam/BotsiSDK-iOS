@@ -257,7 +257,12 @@ public extension Botsi {
     /// Updates the current user's profile with the provided information.
     ///
     /// This method allows to associate user profile information including birthday, email,
-    /// username, gender, phone, and IP address. All fields are optional.
+    /// username, gender, and phone. All fields are optional, and fields you leave out keep their
+    /// current values. Custom attributes are added, or updated when their key already exists.
+    ///
+    /// For a multi-select question, send one custom entry per option shown, keyed
+    /// `<question>.<option>` with the value `"true"` or `"false"`, all in one call.
+    /// See "Multi-select answers" in the README.
     ///
     /// - Parameter profileUpdate: A `BotsiUserProfileInformation` object containing the fields to update.
     ///
@@ -270,8 +275,8 @@ public extension Botsi {
     ///   ```swift
     ///   do {
     ///       let customEntries = [
-    ///           BotsiProfile.BotsiCustomEntry(key: "preference", value: "dark_mode", id: "1"),
-    ///           BotsiProfile.BotsiCustomEntry(key: "region", value: "US", id: "2")
+    ///           BotsiProfile.BotsiCustomEntry(key: "preference", value: "dark_mode", id: ""),
+    ///           BotsiProfile.BotsiCustomEntry(key: "region", value: "US", id: "")
     ///       ]
     ///       
     ///       let profileUpdate = BotsiUserProfileInformation(
